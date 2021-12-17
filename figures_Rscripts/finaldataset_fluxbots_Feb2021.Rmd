@@ -1,0 +1,102 @@
+---
+title: "finaldataset_fluxbots_Feb2021"
+author: "Elizabeth Forbes"
+date: "2/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Final dataset
+
+This script will be to generate the final dataset for the fluxbot methods paper, including removing the August 'test' data and some values for bots that did not pass manual QAQC (e.g. demonstrated possible electrical issues that were cross-validated in field notes, etc.). This final dataset will be used to generate all figures for the paper and will be exported to the project Github page alongside the original raw data, and the original processed data.
+
+```{r importcsv}
+# this chunk imports the raw data from the folder in which this .Rproj lives (where it was copied from the desktop clone of the Github repo, on Elizabeth's computer).
+
+# read ALL of the 20-second smoothed data, including "bad" rows (with QAQC > 11), as a tibble: 
+library(tidyverse)
+fluxdata_20s <- read_csv("all_events_with_bad_20.csv")
+
+```
+This chunk removes all rows for which the QAQC value was >11 total, and for which the timestamp was incorrect.
+```{r removeQAQC}
+# remove rows for which the timestamp was off, i.e. those with the year incorrect:
+fluxdata_20s_2019 <- subset(fluxdata_20s, year == 2019) # takes out 1366 total flux observations
+
+# remove those rows for which the qaqc value is over 11 total:
+fluxdata_20s_2019_qaqc <- subset(fluxdata_20s_2019, qaqc_flags<=11) # removes another 1466, total of 21729 observations
+
+# add BOTID column:
+fluxdata_20s_2019_qaqc$BOTID <- paste(fluxdata_20s_2019_qaqc$Treatment, " ", 
+                                      fluxdata_20s_2019_qaqc$Location, " ", 
+                                      fluxdata_20s_2019_qaqc$Replicate)
+
+#### a quick look through the data:
+# the number of negative fluxes in the cleaned dataset vs. the original dataset:
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0, na.rm = TRUE) # 754 below zero in 'clean'
+sum(fluxdata_20s$flux_umol_m2_sec < 0, na.rm = TRUE) # 1654 below zero in 'full'
+
+# how negative are the negative fluxes?
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -3) # only 3 total fluxes less than -3umol/m2/sec (a flux of functionally zero for our purposes)
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -1) # only 109 of the 754 'negative' fluxes are less than -1
+
+#### rename the df something more convenient that we can manipulate:
+fluxdat_final <- fluxdata_20s_2019_qaqc
+```
+
+This chunk removes all rows for which the data was collected prior to Aug. 22nd, 2019, because the weeks in August were test deployment periods during which bots were occasionally removed for repair, we troubleshot the rainfall events with nighttime roof covers and clear nail polish on the electronics, etc. We are also removing the "termite soil" data from the dataset, as those sites are likely to be more spatially variable than sites under trees or on open soil patches (so those data, UT and OS, are more likely to be a robust assessment of the fluxbots' performance and representative of their operation).
+```{r remove_termitedata_Augtestdata}
+
+# remove the "termite soil" data by filtering for "open soil" OR "under tree":
+fluxdat_final <- fluxdat_final %>% 
+  filter(location == "Open Soil" | location == "Under Tree") # this col OR that col
+# fluxdat_final <- fluxdat_final %>% 
+#   filter(location != "Termite Soil") 13804 either way, just checking to make sure
+  
+# remove the values that were before August 23rd, for the bots that were recalibrated or for which the hardware was replaced on the 21st or 22nd:
+# first convert timestamp from factor to posixct; there's weird characters in it so it'll take a workaround sadly:
+library(lubridate)
+fluxdat_final$timestamp.b <-  with(fluxdat_final, ymd_h(paste(year, month, day, hour, sep= ' ')))
+# filter out values before Aug. 23rd:
+fluxdat_final <- fluxdat_final %>% 
+  filter(timestamp.b > "2019-08-22 23:00:00") # so this takes out all data on or before August 22nd, 2019.
+# there are now 10319 observations total after this step
+
+```
+
+This chunk removes any data from October for the bot ID'd as "NO Open Soil 1", due to the fact that for that month we were rotating bot 'heads' (i.e. lids, associated electronics) onto that chamber because its own head had failed in September, likely due to water damage. While this data is consistent in flux, its ambients are fairly different across each lid's time on the site, indicating some between-bot variance in ambient measurements. We'll use these data in the supplement to demonstrate the consistency of fluxes, but removing from overall data for now.
+```{r removeNOOS1Octdata}
+
+# make exclusion df of just NO OS 1 data occurring after month == 9 (September), i.e. October data:
+exclude <- fluxdat_final %>% 
+  filter(treatment == "O" & location == "Open Soil" & replicate == 1) %>% # this col==this AND this other col==this...
+  filter(month == 10)
+# total of 229 flux observations taken at NO OS 1 in October 2019.
+
+# use anti_join to remove those rows in 'exclude' from 'fluxdat_final' (dplyr):
+fluxdat_final <- anti_join(fluxdat_final, exclude)
+
+# went from 10319, to 10090 total flux observations once NO OS 1 October data were removed (229 total obs. for that bot, in October)
+```
+
+In this chunk, we are adding to the final dataset any additional columns we may need for analysis (e.g. a column indicating which fluxes were calculated with Linear vs. Quadratic regression betas).
+```{r add_addditional_cols}
+# use mutate to add column with L or Q depending on whether the first beta is larger than the second beta; this designation indicates whether the flux was calculated with the slope from the linear (L) regression, or the quadratic (Q). The terms: the logical statement, what to label if the logical statement is true, and what to label if the logical statement is false.
+fluxdat_final <- fluxdat_final %>% 
+  mutate(regr = if_else(`1st_order_beta_0` > `2nd_order_beta_0`, "L", "Q"))
+
+# count how many were calculated with each method:
+sum(fluxdat_final$regr == "L") #3317 total
+sum(fluxdat_final$regr == "Q") #6773 total
+
+# we also want to add a col to this dataframe that selects the CORRECT R2 value (e.g. the one that coordinates with the beta value that was ultimately selected; linear or quadratic)
+#if 'beta' col = "1st_order_beta_0", new col "R2" = "1st_order_r_sq"
+#if 'beta' col = "2nd_order_beta_0", new col "R2" = "2nd_order_r_sq"
+fluxdat_final$R2 <- ifelse(fluxdat_final$beta == fluxdat_final$`1st_order_beta_0`,
+                           fluxdat_final$`1st_order_r_sq`, 
+                           fluxdat_final$`2nd_order_r_sq`)
+```
+
