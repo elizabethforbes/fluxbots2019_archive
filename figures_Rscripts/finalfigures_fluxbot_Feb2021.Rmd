@@ -20,9 +20,6 @@ library(ggplot2)
 library(tidyverse)
 library(scales)
 
-# calculate mean
-mu <- mean(fluxdat_final$flux_umol_m2_sec)
-
 # probability density function in GGplot: 
 dens_g <- ggplot(fluxdat_final, aes(x=flux_umol_m2_sec, y=0.3))+
   # add horizontal boxplot, narrow (0.05) width
@@ -33,9 +30,6 @@ dens_g <- ggplot(fluxdat_final, aes(x=flux_umol_m2_sec, y=0.3))+
   theme_classic()+
   xlab(bquote('soil carbon flux ('*mu~'mol'~CO[2]~m^-2~s^-1*')'))+
   ylab('probability density function')
-  # add mean line (not doing this for now bc mean with outliers is HUGE)
-  # geom_vline(aes(xintercept = mean(flux_umol_m2_sec)),
-  #            color="red", linetype="dashed", size=1)
 
 # need to make plot of log-transformed data, to add as inset to the above graph
 log_g <- ggplot(data=fluxdat_final, aes(x=flux_umol_m2_sec))+
@@ -45,7 +39,6 @@ log_g <- ggplot(data=fluxdat_final, aes(x=flux_umol_m2_sec))+
   xlab("log transformed soil carbon flux")+
   theme(axis.title.y = element_blank())+
   theme(axis.title.x = element_text(vjust = -1))
-log_g
 
 # Okay now put them together with an inset. See the following for source code: https://www.r-bloggers.com/2019/02/plots-within-plots-with-ggplot2-and-ggmap/
 dens_g + annotation_custom(ggplotGrob(log_g), xmin=25, xmax=45,
@@ -89,7 +82,8 @@ no_os2_fluxes %>%
 
 # Visualization of raw data over same week (raw data):
 ```{r rawdata_overtime}
-# read in raw datafile, also on github (not labeled 'output', just labeled with name of the site):
+
+# read in raw datafile, also in project folder (not labeled 'output', just labeled with name of the site):
 no_os2_raw <- read.csv("NO OS2.csv", header=TRUE)
 
 no_os2_raw$Timestamp <- as_datetime(no_os2_raw$Unix.Epoch.Time)
@@ -137,7 +131,8 @@ This data will allow us to:
 - determine size of averaging window for raw data processing prior to regression and flux calculation.
 
 ```{r Allan_variance}
-# import data: in same 'data' folder on github:
+
+# import data: in same project folder:
 allan <- read.csv("allen_variance_results.csv", header=TRUE)
 
 # explore data: what does it look like? visual confirmation of 20s rolling average as maintaining optimal temporal detail and reducing the noise from per-second raw data:
@@ -153,8 +148,10 @@ allan %>%
   geom_vline(xintercept = 20, colour = "red", linetype = "longdash")+
   scale_x_continuous(breaks = seq(0, 120, 20))
 ```
-# comparison of linear vs. quadratic regression:
+
+Comparison of linear vs. quadratic regression:
 ```{r linearvsquadratic}
+
 # add minute col to your already-messed with raw datafile, NO OS2:
 no_os2_raw$minute <- format(no_os2_raw$Timestamp, "%M")
 
@@ -251,11 +248,13 @@ treemap(qaqc_sum,
         # fontcolor.labels = c("transparent"), # remove labels, I'll customize to match other figs
         title = "qaqc",
         fontsize.title = 0) # remove title, this is clumsy but it works
+
+# note to self: made this plot prettier in Affinity Designer, with specialized font, for publication. Could work within R Studio in this plot-making script to do it in R Studio instead.
 ```
 
-
-Also going to make a figure exploring the 'rotating head' data, (NO OS1 data from October 2019).
+A figure exploring the 'rotating head' data, (NO OS1 data from October 2019).
 ```{r rotatinghead}
+
 # plot just the October (e.g. rotating head) data for NO OS1
 # isolate those data: should be 229 total points
 noos1_rot <- fluxdata_20s_2019_qaqc %>%
@@ -340,25 +339,7 @@ d10 %>%
   geom_vline(xintercept = mybreaks, linetype="dashed", color = "#66A182", size=.6)+
   labs(x = NULL)
 
-# test if there are significant differences between chunks of data collected by different fluxbot heads, for FLUX:
-rotation_lm <- lm(flux_umol_m2_sec ~ as.factor(rotation), data = d10)
-rotation_aov <- aov(rotation_lm)
-summary(rotation_aov) # p = 0.00157 **
-# post-hoc Tukey test to ID significant differences between rotations:
-TukeyHSD(rotation_aov)
-# significant difference between rotation 1 and 4: p = 0.0015295 (n = 22 vs. 40)
-# borderline difference between rotation 1 and 5: p = 0.0533650 (n = 22 vs. 43)
-# significant difference between rotation 2 and 4: p = 0.0114565 (n = 44 vs. 40)
-
-# test if there are significant differences between chunks of data collected by different fluxbot heads, for AMBIENT:
-rotation_lm2 <- lm(ambient_CO2_ppm ~ as.factor(rotation), data = d10)
-rotation_aov2 <- aov(rotation_lm2)
-summary(rotation_aov2) # p = <2e-16 ***
-#post-hoc Tukey:
-TukeyHSD(rotation_aov2)
-# several rotational chunks are not significantly different from each other but that is to be expected looking at the plot (e.g. chunk 4 and 8)
 ```
-
 
 # distribution of Quadratic and Linear calculations
 This chunk will be for developing a brief visual assessment of the distribution of fluxes calculated with linear or quadratically-derived beta values.
@@ -400,8 +381,10 @@ box_regr
 #   theme(legend.position = "none")
 
 ```
-Below plot looks at distribution of regressions with quadratic beta vs. linear beta, in same plot as the above plot:
-```{r}
+
+The below plot looks at distribution of regressions with quadratic beta vs. linear beta, in same figure as the above plot:
+```{r QandL_2}
+
 bar_regr <- fluxdat_final %>% 
   ggplot(aes(x=regr, fill=regr))+
   geom_bar(color="black")+
@@ -425,19 +408,9 @@ patchwork
 ```
 
 Plotting max and mins of our fluxes calculated with the confidence intervals of our betas. Here we are experimenting with different visualizations of flux, measurements of error, and R2.
-```{r}
-# # percent error
-# fluxdat_final$percent_error <- (abs((fluxdat_final$flux_max_umol_m2_sec-fluxdat_final$flux_min_umol_m2_sec)/fluxdat_final$flux_umol_m2_sec))*100
-# absolute flux uncertainty
-fluxdat_final$abs_uncertainty <- (abs((fluxdat_final$flux_max_umol_m2_sec-fluxdat_final$flux_min_umol_m2_sec)/2))
-# relative flux uncertainty
-fluxdat_final$rel_uncertainty <- abs(fluxdat_final$abs_uncertainty/fluxdat_final$flux_umol_m2_sec)
+```{r rel_flux}
 
-####  We're defining flux uncertainty as (max - min)/2.  We're defining relative flux uncertainty as ((max-min)/2)/flux estimate.  R2 is calculated in the fluxboy.py batch processing step, as is max, min, and midrange flux estimates (based on those three betas for each regression).  I'm using all absolute values of these numbers for visualization purposes to get visual ideas of the amplitude of these errors.
-
-######################## final plots for paper:
-
-# relative flux uncertainty compared to flux estimate:
+# relative flux uncertainty compared to flux estimate, filtered to isolate fluxes and R2s over 0:
 fluxdat_final %>%
   filter(flux_umol_m2_sec > 0.0) %>% 
   filter(R2 > 0) %>% 
@@ -456,7 +429,9 @@ fluxdat_final %>%
   geom_hline(yintercept = 100, linetype = "dashed", color = "red")
 
 ```
-```{r}
+
+The below plot visualizes relative flux uncertainty (y) against R2 values (x), with the data filtered to isolate those fluxes over 0 and those R2s over 0.
+```{r rel_R1}
 
 # relative flux uncertainty compared to R2:
 fluxdat_final %>%
@@ -476,7 +451,8 @@ fluxdat_final %>%
   geom_hline(yintercept = 100, linetype = "dashed", color = "red")
 ```
 
-```{r}
+The below plot visualizes flux (x) against R2 values (y), with the data filtered to isolate those fluxes over 0 and those R2s over 0.  The three above plots are combined for the final figure for publication using Affinity Designer.
+```{r flux_R2}
 
 # flux compared to R2:
 fluxdat_final %>%
@@ -492,162 +468,3 @@ fluxdat_final %>%
 
 ```
 
-Descriptive stats:
-```{r}
-# sum(fluxdat_final$rel_uncertainty*100 > 100) # only 155 of all the relative flux uncertainties are over 100%
-fluxdat_final %>%
-  filter(rel_uncertainty*100 > 100) %>%
-  filter(flux_umol_m2_sec < 0) %>%
-  nrow()  # 57 fluxes have both relative flux uncertainty over 100%, AND are less than 0
-# sum(fluxdat_final$rel_uncertainty*100 > 50) # only 345 of all the relative flux uncertainties are over 50%
-# sum(fluxdat_final$rel_uncertainty*100 > 20) # only 811 of all the relative flux uncertainties are over 20%
-
-# sum(fluxdat_final$R2 < 0) # 808 total R2s are less than zero (out of 10k)
-# fluxdat_final %>%
-#   # filter(rel_uncertainty*100 > 100) %>%
-#   # filter(flux_umol_m2_sec < 0 & flux_umol_m2_sec > -2) %>% # 324 with less than zero flux AND less than zero R2
-#   # filter(R2 < 0) %>%
-#   filter(R2 > 0.25) %>% 
-#   # filter(rel_uncertainty*100 > 50) %>% 
-#   nrow()  # 143 fluxes have both relative flux uncertainty over 100%, AND an R2 of less than zero
-# sum(fluxdat_final$R2 >.9) # 4653 aka 46%
-# sum(fluxdat_final$R2 >.5) # 8293 aka 83%
-# sum(fluxdat_final$R2 > .25) # 8885 aka 88%
-
-# of those R2's less than .5, how many have high relative flux uncertainty and how many have low? (aka the 'split' in the data in figure SI7b)
-# fluxdat_final %>% 
-#   filter(R2 < 0.5) %>% 
-#   # filter(rel_uncertainty*100 < 50) %>% 
-#   filter(rel_uncertainty*100 > 50) %>% 
-#   nrow()
-# 1447 total of the 'less good fit' fluxes have low (aka less than 50%) relative flux uncertainty
-# 345 of the less good fit fluxes have high (aka greater than 50% relative flux uncertainty)
-# the above two numbers add up to the total number of flux estimates with less than .5 R2 values
-
-# sum(fluxdat_final$R2 < -1) # 292 total R2s are less than -1 (out of 10k)
-# sum(fluxdat_final$R2 < -0.5) # 442 total R2s are less than -0.5 (out of 10k), which means half of the total negative ones are between 0 and -0.5, and a little less than half of the rest are between -0.5 and -1.  e.g. the VAST majority are very minutely negative.
-
-# sum(fluxdat_final$flux_umol_m2_sec <0.1) # 419 total
-# sum(fluxdat_final$flux_umol_m2_sec <0) # 330 total
-# sum(fluxdat_final$flux_umol_m2_sec <0.05) # 372 total
-
-# average flux of those with relative error > 100:
-fluxdat_final %>% 
-  filter(rel_uncertainty*100 > 100) %>% # select all those rows with relative uncertainty (in percentage) greater than 100
-  summarise(m = mean(flux_umol_m2_sec)) # take the mean of the flux for those rows
-# 0.01832903
-fluxdat_final %>% 
-  filter(rel_uncertainty*100 > 100) %>% # select all those rows with relative uncertainty (in percentage) greater than 100
-  summarise(max = max(flux_umol_m2_sec)) # take the max of the flux for those rows
-# 0.219
-fluxdat_final %>% 
-  filter(rel_uncertainty*100 > 100) %>% # select all those rows with relative uncertainty (in percentage) greater than 100
-  summarise(min = min(flux_umol_m2_sec)) # take the min of the flux for those rows
-# -0.344	
-fluxdat_final %>% 
-  filter(rel_uncertainty*100 > 100) %>% # select all those rows with relative uncertainty (in percentage) greater than 100
-  summarise(med = median(flux_umol_m2_sec)) # take the median of the flux for those rows
-# 0.024	
-
-# MEAN R2 for linear vs. quadratic regressions
-fluxdat_final %>% 
-  filter(regr == "L") %>% 
-  summarise(m = mean(R2)) #0.4737685
-fluxdat_final %>% 
-  filter(regr == "Q") %>% 
-  summarise(m = mean(R2)) #0.7345329
-
-```
-
-
-
-```{r}
-# library(ggplot2)
-# library(tidyverse)
-# library(scales)
-
-# plot #1: 
-rel1 <- fluxdat_final %>%
-  ggplot(aes(y=rel_uncertainty*100, x=R2))+
-  geom_point(alpha=0.25)+
-  theme_classic()+
-  labs(x = expression(paste("R"^2)),
-       y = "relative uncertainty (%)")+
-  theme(axis.text = element_text(size=18),
-        axis.title = element_text(size=21))+
-  scale_y_continuous(breaks = c(100, 2500, 5000, 7500, 10000), 
-                     labels = c("100", "2.5k", "5k", "7.5k", "10k"))
-# plot #2, as inset:
-rel2 <- fluxdat_final %>%
-  ggplot(aes(y=rel_uncertainty*100, x=R2))+
-  geom_point(alpha=0.25)+
-  theme_classic()+
-  labs(x = expression(paste("R"^2)),
-       y = "")+
-  ylim(0,100)+
-  geom_hline(yintercept = 100, linetype = "dashed", color = "red")
-
-# Okay now put them together with an inset:
-rel1 + annotation_custom(ggplotGrob(rel2), xmin=-25, xmax=-13,
-                       ymin=4500, ymax = 10000)
-```
-
-```{r}
-# library(ggplot2)
-# library(tidyverse)
-# library(scales)
-
-# plot #1: 
-rel3 <- fluxdat_final %>%
-  ggplot(aes(y=rel_uncertainty*100, x=flux_umol_m2_sec))+
-  geom_point(alpha=0.25)+
-  theme_classic()+
-  labs(x = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"),
-       y = "relative uncertainty (%)")+
-  theme(axis.text = element_text(size=18),
-        axis.title = element_text(size=21))+
-  scale_y_continuous(breaks = c(100, 2500, 5000, 7500, 10000), 
-                     labels = c("100", "2.5k", "5k", "7.5k", "10k"))
-  # geom_hline(yintercept = 100, linetype = "dashed", color = "red")
-
-# plot #2, as inset:
-rel4 <- fluxdat_final %>%
-  ggplot(aes(y=rel_uncertainty*100, x=flux_umol_m2_sec))+
-  geom_point(alpha=0.25)+
-  theme_classic()+
-  labs(x = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"),
-       y = "")+
-  ylim(0,100)+
-  geom_hline(yintercept = 100, linetype = "dashed", color = "red")
-
-# Okay now put them together with an inset:
-rel3 + annotation_custom(ggplotGrob(rel4), xmin=23, xmax=45,
-                       ymin=4500, ymax = 10000)
-```
-
-#########
-EXTRA
-#########
-Also a distribution plot of the beta values per bot:
-```{r}
-# plot both on same plot; need long form data for that
-library(reshape2)
-fluxdat_beta_long <- melt(fluxdat_final,
-                          id.vars = c("BOTID", "hour"),
-                          measure.vars = c("1st_order_beta_0", "2nd_order_beta_0"),
-                          variable.name = "beta_type",
-                          value.name = "beta_value")
-# plot:
-g <- ggplot(fluxdat_beta_long, aes(x=beta_value, group=beta_type, fill=beta_type))+
-  geom_density(alpha=0.75)+
-  facet_wrap(~BOTID)+
-  theme_classic()+
-  scale_fill_brewer(palette = "Set3")+
-  labs(x = expression(paste(beta~"value")),
-       y=NULL)+
-  theme(legend.position = "bottom")
-
-g + scale_fill_discrete(name = NULL,
-                        breaks = c("1st_order_beta_0", "2nd_order_beta_0"),
-                        labels = c("linear regression beta", "quadratic regression beta"))
-```
