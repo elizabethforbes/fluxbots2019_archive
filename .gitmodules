@@ -1,3 +1,6 @@
 [submodule "fluxbots2019_archive/hardware"]
 	path = fluxbots2019_archive/hardware
 	url = https://github.com/v-benenati/FluxbotV2.git
+[submodule "hardware"]
+	path = hardware
+	url = https://github.com/v-benenati/FluxbotV2.git
