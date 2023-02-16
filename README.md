@@ -1,24 +1,16 @@
-# fluxbots2019_archive
+# fluxbots2019
+repo for Cal/Val df, bot df's, and code for processing data from 2019 fluxbot deployment
 
-This repository hosts the software required to process raw carbon dioxide accumulation data, and calculate flux data.  Included in this repo are several additional Jupyter notebooks, including one that:
+Folder 1:
+- dataframe containing cal/val data e.g. those flux values collected manually with PP Systems CIRAS SRC-3 that can be compared in time against those raw CO2 curves collected by the fluxbots
+- dataframe containing all the raw data for all the fluxbots, over the course of the entire deployment in the field
 
--  runs the fluxbot.py analyses software that processes raw data to produce flux data for each fluxbot in a network
--  calculates the Allan Variance of the raw carbon dioxide data streams, to determine the best averaging window
--  compares the flux data collected by the fluxbots with those collected manually with a PP Systems CIRAS carbon analyzer and attached soil carbon flux chamber
--  raw carbon accumulation datasets for each fluxbot in the network analyzed here
--  output flux data for the entire network, produced by the fluxbot.py analyses software
--  additional data used for analyses such as the Allan Variance, comparison with CIRAS data, seal/closure testing
--  R Studio markdown files used to produce the final dataset (e.g. remove fluxes that do not pass the QAQC testing phase); descriptive statistics and analyses reported in the manuscript and supplement; and all plots reported in the manuscript and supplement.
+Folder 2:
+- code to compare CIRAS flux values against comparable (in time) calcluated fluxbot fluxes; calculate correction factor to be applied to fluxbot data if fluxes differ in predictable fashion between the two methods
+- code to calculate hourly fluxes from each fluxbot's raw data stream, and (if necessary) apply correction factor determined from cal/val
+- code to explore differences in fluxes across: herbivore treatments, landscape feature, through time (e.g. 24hr cycle, seasonality), and in response to rainfall events
 
-Also included in this repo is a submodule titled "hardware". This submodule links to a repo created by co-author Vincent Benenati and housed at his Github (repo "FluxbotV2"). The scripts therein are those uploaded to the Pycom microcontroller, and that run the hardware of the fluxbot: the boot-up sequence, the data storage sequence, the actuator, the real-time clock (pcf8523), the humidity/pressure/temperature sensor (bme280), the CO2 sensor, the indicator light, and the various constants like pin locations and actuator opening positions. To use this submodule when cloning the fluxbots2019_archive repo, it is necessary to initialize the submodule. To clone the repository with the submodule, use:
+## Manuscript file
 
-```
-git clone --recursive https://github.com/elizabethforbes/fluxbots2019_archive.git
-```
+The [manuscript](https://www.overleaf.com/read/mnmbvcmpgbjq) file for this work is hosted on Overleaf.
 
-If you have already cloned the project without the recursive command, you can initialize the submodule using:
-
-```
-git submodule init
-git submodule update
-```
