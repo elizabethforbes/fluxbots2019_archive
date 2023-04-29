@@ -1,0 +1,202 @@
+---
+title: "meteorological data 2"
+author: "Elizabeth Forbes"
+date: "5/16/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+```
+
+## Producing meteorological data
+
+The process in this markdown file will produce a set of meteorological data for our fluxbot array. Based on exploration of our entire flux dataset's pressure/humidity data, 7 out of 12 of our BME280 temp, pressure, and humidity sensors were compromised after an uncovered rainfall event on August 28th, 2019. Because we cannot trust these data, we are instead going to average the pressure data (and only pressure data) for each timepoint from the five trustworthy fluxbots' BME280 sensors to use across all the fluxbots for each flux calculation.
+
+# update May 16, 2022: we're going to try this again, using not the calculated flux data but the raw data.
+
+```{r}
+# View(fluxdat_final)
+# likely trustworthy BME280s:
+# MWC OS3; MWC UT3; O OS2; O OS3; O UT2
+
+# import raw data files:
+library(here) 
+filedir <- here::here("rawdata") # use "here" package/function to identify a sub-folder within the project's working directory
+                      
+# view files:
+filedir %>% list.files()
+
+# save file names with extension .csv:
+csv_filenames <- filedir %>% 
+  list.files() %>% 
+  .[str_detect(.,".csv")]
+
+# load the files into the global environment of the project:
+csv_filenames %>%
+  purrr::map(function(file_name){ # iterate through each file name
+    assign(x = str_replace(str_remove(file_name, ".csv"), " ", "_"), # Remove file extension ".csv", replace the space in the file names with "_"
+           value = read_csv(file.path(filedir, file_name)),
+           envir = .GlobalEnv)
+  })
+
+# calculate average pressure for each hour
+rawdat <- rbind(NMWC_OS3,NMWC_UT3,NO_OS2,NO_OS3,NO_UT2)
+# remove non-observation interval time stamps
+rawdat2 <- rawdat %>% 
+  mutate(TimestampB = format(Timestamp, format="%M")) %>% 
+  filter(TimestampB!= "00" & TimestampB!= "18" & TimestampB!= "36" & TimestampB!= "54")
+# create a rounded timestampe column:
+rawdat2$TimestampR <- format(round(rawdat2$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+# remove the TimestampB column
+rawdat2 <- rawdat2 %>% 
+  subset(select = -TimestampB)
+
+# calculate mean 
+avg_metdat <- rawdat2 %>%
+    group_by(TimestampR) %>%                             
+    summarise(avgP_perhour = mean(Pressure, na.rm = TRUE))
+# range is between ~781-858 hPa
+
+# overall mean:
+mean(avg_metdat$avgP_perhour)
+# 821.5308
+median(avg_metdat$avgP_perhour)
+# 821.5882
+
+# write meteorological data to working directory
+write_csv(avg_metdat, "meteorologicaldat_P_2.csv")
+```
+                   
+Success!
+
+Now I need to use dplyr to match the average pressure data outcomes to the right date/time rows in each of the dataframes in my list. I can use the new rounded datetimes I generated in the chunk above to do that.
+
+```{r rounding}
+# create a TimestampR (rounded to hour timestamp) column on each of the dfs to be matched to the meteorological data
+
+NMWC_OM1$TimestampR <- format(round(NMWC_OM1$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_OM2$TimestampR <- format(round(NMWC_OM2$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_OM3$TimestampR <- format(round(NMWC_OM3$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_UT1$TimestampR <- format(round(NMWC_UT1$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_UT2$TimestampR <- format(round(NMWC_UT2$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_UT3$TimestampR <- format(round(NMWC_UT3$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_OS1$TimestampR <- format(round(NMWC_OS1$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_OS2$TimestampR <- format(round(NMWC_OS2$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NMWC_OS3$TimestampR <- format(round(NMWC_OS3$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_OM1$TimestampR <- format(round(NO_OM1$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_OM2$TimestampR <- format(round(NO_OM2$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_OM3$TimestampR <- format(round(NO_OM3$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_UT1$TimestampR <- format(round(NO_UT1$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_UT2$TimestampR <- format(round(NO_UT2$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_UT3$TimestampR <- format(round(NO_UT3$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_OS1$TimestampR <- format(round(NO_OS1$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_OS2$TimestampR <- format(round(NO_OS2$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+NO_OS3$TimestampR <- format(round(NO_OS3$Timestamp, units = "hours"), format = "%Y-%m-%d %H:%M:%S")
+```
+
+```{r matching}
+# using the timestampR column, match the avg_metdat to each of the dataframes
+
+NMWC_OS1_avgP <- NMWC_OS1 %>% left_join(avg_metdat) # use left join to add pressure data to each row of the larger dataframe for MWC OS2 raw data, with TimestampR as the common column.
+# if there are NAs in the average pressure column, replace with "821.5" (the approximate mean and median of the avg met data for P)
+NMWC_OS1_avgP <- NMWC_OS1_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_OS2_avgP <- NMWC_OS2 %>% left_join(avg_metdat)
+NMWC_OS2_avgP <- NMWC_OS2_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_OS3_avgP <- NMWC_OS3 %>% left_join(avg_metdat)
+NMWC_OS3_avgP <- NMWC_OS3_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_UT1_avgP <- NMWC_UT1 %>% left_join(avg_metdat)
+NMWC_UT1_avgP <- NMWC_UT1_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_UT2_avgP <- NMWC_UT2 %>% left_join(avg_metdat)
+NMWC_UT2_avgP <- NMWC_UT2_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_UT3_avgP <- NMWC_UT3 %>% left_join(avg_metdat)
+NMWC_UT3_avgP <- NMWC_UT3_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_OM1_avgP <- NMWC_OM1 %>% left_join(avg_metdat)
+NMWC_OM1_avgP <- NMWC_OM1_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_OM2_avgP <- NMWC_OM2 %>% left_join(avg_metdat)
+NMWC_OM2_avgP <- NMWC_OM2_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NMWC_OM3_avgP <- NMWC_OM3 %>% left_join(avg_metdat)
+NMWC_OM3_avgP <- NMWC_OM3_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+##############
+NO_OS1_avgP <- NO_OS1 %>% left_join(avg_metdat)
+NO_OS1_avgP <- NO_OS1_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_OS2_avgP <- NO_OS2 %>% left_join(avg_metdat)
+NO_OS2_avgP <- NO_OS2_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_OS3_avgP <- NO_OS3 %>% left_join(avg_metdat)
+NO_OS3_avgP <- NO_OS3_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_UT1_avgP <- NO_UT1 %>% left_join(avg_metdat)
+NO_UT1_avgP <- NO_UT1_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_UT2_avgP <- NO_UT2 %>% left_join(avg_metdat)
+NO_UT2_avgP <- NO_UT2_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_UT3_avgP <- NO_UT3 %>% left_join(avg_metdat)
+NO_UT3_avgP <- NO_UT3_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_OM1_avgP <- NO_OM1 %>% left_join(avg_metdat)
+NO_OM1_avgP <- NO_OM1_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_OM2_avgP <- NO_OM2 %>% left_join(avg_metdat)
+NO_OM2_avgP <- NO_OM2_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+NO_OM3_avgP <- NO_OM3 %>% left_join(avg_metdat)
+NO_OM3_avgP <- NO_OM3_avgP %>% replace_na(list(avgP_perhour = 821.5))
+
+```
+
+Plot diurnal variation in chamber pressure for an example bot to look at amplitude:
+```{r plot_pressure}
+NMWC_OS1_avgP %>% 
+  na.omit() %>% 
+  filter(minute(Timestamp) == 55 & second(Timestamp) == 01) %>% 
+  ggplot(aes(x=as.Date(TimestampR, "%Y-%m-%d %H:%M:%OS"), y=avgP_perhour))+
+  geom_line()+
+  geom_point(color = "red")+
+  scale_x_date(date_labels = "%b")+
+  theme_classic()
+  
+```
+
+
+Write these new dfs to the output folder:
+```{r write_data}
+write_csv(NMWC_OS1_avgP,here("rawdata","avgP_round4_final", "NMWC_OS1_avgP.csv"))
+write_csv(NMWC_OS2_avgP,here("rawdata","avgP_round4_final", "NMWC_OS2_avgP.csv"))
+write_csv(NMWC_OS3_avgP,here("rawdata", "avgP_round4_final", "NMWC_OS3_avgP.csv"))
+
+write_csv(NMWC_UT1_avgP,here("rawdata", "avgP_round4_final", "NMWC_UT1_avgP.csv"))
+write_csv(NMWC_UT2_avgP,here("rawdata", "avgP_round4_final", "NMWC_UT2_avgP.csv"))
+write_csv(NMWC_UT3_avgP,here("rawdata", "avgP_round4_final", "NMWC_UT3_avgP.csv"))
+
+write_csv(NMWC_OM1_avgP,here("rawdata", "avgP_round4_final", "NMWC_OM1_avgP.csv"))
+write_csv(NMWC_OM2_avgP,here("rawdata", "avgP_round4_final", "NMWC_OM2_avgP.csv"))
+write_csv(NMWC_OM3_avgP,here("rawdata", "avgP_round4_final", "NMWC_OM3_avgP.csv"))
+
+
+write_csv(NO_OS1_avgP,here("rawdata", "avgP_round4_final", "NO_OS1_avgP.csv"))
+write_csv(NO_OS2_avgP,here("rawdata", "avgP_round4_final", "NO_OS2_avgP.csv"))
+write_csv(NO_OS3_avgP,here("rawdata", "avgP_round4_final", "NO_OS3_avgP.csv"))
+
+write_csv(NO_UT1_avgP,here("rawdata", "avgP_round4_final", "NO_UT1_avgP.csv"))
+write_csv(NO_UT2_avgP,here("rawdata", "avgP_round4_final", "NO_UT2_avgP.csv"))
+write_csv(NO_UT3_avgP,here("rawdata", "avgP_round4_final", "NO_UT3_avgP.csv"))
+
+write_csv(NO_OM1_avgP,here("rawdata", "avgP_round4_final", "NO_OM1_avgP.csv"))
+write_csv(NO_OM2_avgP,here("rawdata", "avgP_round4_final", "NO_OM2_avgP.csv"))
+write_csv(NO_OM3_avgP,here("rawdata", "avgP_round4_final", "NO_OM3_avgP.csv"))
+```
+

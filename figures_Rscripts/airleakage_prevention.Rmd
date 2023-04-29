@@ -1,0 +1,84 @@
+---
+title: "airleakage_prevention"
+author: "Elizabeth Forbes"
+date: "12/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readr)
+library(here)
+```
+
+This file is to make some basic plots comparing leaking with and without the various baffles with added to the fluxbot lid-body connection (lip and neoprene).
+
+Download data:
+```{r data}
+# nolip <- read_csv("airtightnesstest_nolip_1.csv")
+nolip <- read_csv(here("auxiliary_non_flux_data", "airtightnesstest_nolip_1.csv"))
+# withlip <- read_csv("airtightnesstest_withlip_1.csv")
+withlip <- read_csv(here("auxiliary_non_flux_data", "airtightnesstest_withlip_1.csv"))
+# lipneoprene <- read_csv("airtightnesstest_withlipandneoprene_1.csv")
+lipneoprene <- read_csv(here("auxiliary_non_flux_data", "airtightnesstest_withlipandneoprene_1.csv"))
+```
+Next make a plot of each set of data showing leakage:
+```{r indiv_plots}
+library(tidyverse)
+library(ggpubr)
+
+a1 <- ggplot(nolip, aes(x=`Sec since 2000`, y=`Filter CO2 PPM`))+
+  geom_point(color="lightblue")+
+  theme_classic()+
+  theme(axis.text.x = element_blank())+
+  ylim(300, 700)+
+  scale_x_continuous(name = "time (minutes)", n.breaks = 5)+
+  ylab(element_blank()) +
+  ggtitle("no rubber lip, no neoprene washer")+
+  annotate("segment", x=1563679025, xend = 1563679010,
+           y=650, yend = 485,
+           colour = "darkred",
+           arrow = arrow(length = unit(2, "mm")))+
+  annotate("text", x=1563679025, y=675, label = "breath test", colour= "darkred", size=3)
+
+a2 <- ggplot(withlip, aes(x=`Sec since 2000`, y=`Filter CO2 PPM`))+
+  geom_point(color="cornflowerblue")+
+  theme_classic()+
+  theme(axis.text.x = element_blank())+
+  ylim(300, 700)+
+  # xlab(element_blank())+
+  scale_x_continuous(name = "time (minutes)", n.breaks = 5.3)+
+  ylab(element_blank())+
+  ggtitle("rubber lip, no neoprene washer")+
+  annotate("segment", x=1563680790, xend = 1563680800,
+           y=650, yend = 500,
+           colour = "darkred",
+           arrow = arrow(length = unit(2, "mm")))+
+  annotate("text", x=1563680795, y=675, label = "breath test", colour= "darkred", size=3)
+
+a3 <- ggplot(lipneoprene, aes(x=`Sec since 2000`, y=`Filter CO2 PPM`))+
+  geom_point(color="darkslategray4")+
+  theme_classic()+
+  theme(axis.text.x = element_blank())+
+  ylim(300, 700)+
+  scale_x_continuous(name = "time (minutes)", n.breaks = 7.25)+
+  ylab(element_blank())+
+  ggtitle("rubber lip, neoprene washer")+
+  annotate("segment", x=1563683950, xend = 1563683945,
+           y=650, yend = 500,
+           colour = "darkred",
+           arrow = arrow(length = unit(2, "mm")))+
+  annotate("text", x=1563683950, y=675, label = "breath test", colour= "darkred", size=3)
+
+# put them together
+a4 <- ggarrange(a1, a2, a3,
+          ncol=2, nrow=2)
+
+# put left hand label on the composite graph
+annotate_figure(a4,
+                left = text_grob("carbon dioxide concentration (PPM)", rot = 90))
+
+
+```
+

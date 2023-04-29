@@ -1,0 +1,188 @@
+---
+title: "rawdat_variability"
+author: "Elizabeth Forbes"
+date: "5/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# libraries:
+library(here)
+library(tidyverse)
+library(lubridate)
+library(lme4)
+library(nlme)
+library(DHARMa)
+library(lmerTest)
+library(forecast)
+library(TSdist)
+library(ggseas)
+library(changepoint)
+library(Rbeast)
+library(car)
+```
+
+# Raw data variability: did we observe increasing variability in data collection over time across the fluxbot array?
+- upload raw data
+- statistically analyze variance over time
+- compare across fluxbots to see if any fluxbot(s) is driving an increase in variance, if this increase exists
+```{r data}
+# this chunk loads/tidies the humidity-adjusted (only) dataset
+# import each file and then merge
+filedir <- here::here("data", "raw accumulation data") # use "here" package/function to identify a sub-folder within the project's working directory
+                      
+# view files:
+filedir %>% list.files() # these files are the 20s rolling average, humidity-corrected flux calculations
+
+# save file names with extension .csv:
+csv_filenames <- filedir %>% 
+  list.files() %>% 
+  .[str_detect(.,".csv")]
+
+# load the files into the global environment of the project:
+csv_filenames %>%
+  purrr::map(function(file_name){ # iterate through each file name
+    assign(x = str_replace(str_remove(file_name, ".csv"), " ", "_"), # Remove file extension ".csv", replace the space in the file names with "_"
+           value = read_csv(file.path(filedir, file_name)),
+           envir = .GlobalEnv)
+  })
+
+# add dataframe (and thus fluxbot) ID to data, bind into one
+new_rawdat <- bind_rows(lst(NO_OS1, NO_OS2, NO_OS3, NO_UT1, NO_UT2, NO_UT3,
+                            NMWC_OS1, NMWC_OS2, NMWC_OS3, NMWC_UT1, NMWC_UT2, NMWC_UT3),
+                        .id = "botID")
+
+# eliminate data from before August 23rd
+new_rawdat <- new_rawdat %>% 
+  filter(Timestamp > "2019-08-22 23:00:00")
+
+# order the data
+new_rawdat <- arrange(new_rawdat, Timestamp)
+
+# add day, hour, month columns
+new_rawdat <- new_rawdat %>% 
+  mutate(hour = format(ymd_hms(as.character(new_rawdat$Timestamp)), '%H')) %>% 
+  mutate(day = format(ymd_hms(as.character(new_rawdat$Timestamp)), '%d')) %>% 
+  mutate(month = format(ymd_hms(as.character(new_rawdat$Timestamp)), '%m')) %>% 
+  mutate(year = format(ymd_hms(as.character(new_rawdat$Timestamp)), '%y'))
+
+# make exclusion df of just NO OS 1 data occurring after month == 9, i.e. October data:
+exclude <- new_rawdat %>% 
+  filter(botID == "NO_OS1") %>%
+  filter(month == 10)
+
+# use anti_join to remove those rows in 'exclude' from 'new_rawdat' (dplyr):
+new_rawdat <- anti_join(new_rawdat, exclude)
+
+# remove weird years
+exclude2 <- new_rawdat %>% 
+  filter(year != 19)
+new_rawdat <- anti_join(new_rawdat, exclude2)
+
+```
+
+Calculate variance each day over time:
+
+NOTE: this function may work, but the dataset is just too big.  It never finished running over the course of an hour or so.
+```{r variance}
+# https://stackoverflow.com/questions/61836898/variance-over-time-with-two-dataframes-in-r
+
+# function to calculate cumulative variance, daily variance
+# cumvar <- function(x)  {
+#   sapply(seq_along(x), function(i) var(x[1:i]))
+# }
+# 
+# test <- new_rawdat %>%
+#   group_by(botID) %>%
+#   mutate(cvar = cumvar(Filter.CO2.PPM)) %>%
+#   group_by(botID, month) %>%
+#   summarise(variance_month_x = var(Filter.CO2.PPM),
+#             variance_cumulative = last(cvar)) %>%
+#   complete(botID, month) %>%
+#   fill(variance_cumulative, .direction = "down")
+
+```
+
+```{r changepoint}
+# new_NO_OS1 <- arrange(NO_OS1, Timestamp)
+# change_noos1 <- cpt.meanvar(new_NO_OS1$Filter.CO2.PPM)
+# plot(change_noos1)
+# 
+# change_var <- cpt.var(new_rawdat$Filter.CO2.PPM, test.stat = "Normal",
+#                       method = "PELT")
+# plot(change_var)
+# i have no idea how to interpret this
+```
+
+just going to do some classic f-tests here (more accurately Levene tests bc I have more than two )
+```{r f_test}
+# f test, with multiple independent variables (month and botID):
+f1 <- leveneTest(Filter.CO2.PPM~month*botID, data = new_rawdat)
+f1
+
+f2 <- leveneTest(Filter.CO2.PPM~month, data = new_rawdat)
+f2
+# Levene's Test for Homogeneity of Variance (center = median)
+#            Df F value    Pr(>F)    
+# group       2   36270 < 2.2e-16 ***
+#       3535048 
+# variance apparently differs significantly across months.  hmm!
+boxplot(Filter.CO2.PPM ~ month,
+        data = new_rawdat,
+        xlab = "month",
+        ylab = "raw CO2 concentration, ppm",
+        col = "steelblue",
+        border = "black")
+
+f3 <- leveneTest(Filter.CO2.PPM ~ botID, data = new_rawdat)
+f3
+# Levene's Test for Homogeneity of Variance (center = median)
+#            Df F value    Pr(>F)    
+# group      11  484778 < 2.2e-16 ***
+#       3535039 
+
+# variance also differs across botID.
+boxplot(Filter.CO2.PPM ~ botID,
+        data = new_rawdat,
+        xlab = "fluxbot ID",
+        las = 1.25,
+        ylab = "raw CO2 concentration, ppm",
+        col = "tomato1",
+        border = "black")
+
+# violin plot of the same data: first bot, then month
+new_rawdat %>% 
+  ggplot(aes(x=botID, y=Filter.CO2.PPM, fill = botID))+
+  geom_violin()
+
+month.labs <- c("Sept 2019", "Oct 2019", "Nov 2019")
+names(month.labs) <- c("08", "09", "10")
+
+new_rawdat %>% 
+  ggplot(aes(x=month, y=Raw.CO2.PPM, fill = month))+
+  geom_violin()+
+  labs(y="Raw carbon dioxide concentration (ppm)",
+       x="fluxbot ID")+
+  theme_classic()+
+  scale_fill_discrete()+
+  theme(legend.position = "none")+
+  # facet_wrap(~month, labeller = labeller(month=month.labs))+
+  theme(axis.text.x = element_text(angle = 35, hjust=1))
+```
+violin plot of raw CO2 across months:
+```{r}
+new_rawdat %>% 
+  ggplot(aes(x=month, y=Raw.CO2.PPM))+
+  geom_boxplot(outlier.alpha = 0.25, fill = "steelblue")+
+  # geom_violin()+
+  labs(y="Raw carbon dioxide concentration (ppm)",
+       x="")+
+  theme_classic()+
+  scale_x_discrete(labels=c("Sept. 2019", "Oct. 2019", "Nov. 2019"))+
+  theme(legend.position = "none")
+  # facet_wrap(~month, labeller = labeller(month=month.labs))+
+  # theme(axis.text.x = element_text(angle = 35, hjust=1))
+
+```
+

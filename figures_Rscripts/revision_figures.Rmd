@@ -1,0 +1,908 @@
+---
+title: "revision figures"
+author: "Elizabeth Forbes"
+date: "2022-09-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(patchwork)
+library(tidyverse)
+library(gridExtra)
+library(scales)
+library(treemap)
+library(effectsize)
+library(here)
+```
+
+
+## Plots to be used in response to reviewers:
+
+Plot the humidity over day to nighttime hours, to demonstrate the daily re-wetting cycle referred to in the response.
+```{r plot_humidity}
+
+# fluxdat_daynight
+
+p1 <- fluxdat_daynight %>% 
+  ggplot(aes(y=avg_rel_humidity, x=day_night, fill=day_night)) + 
+    geom_boxplot(alpha=.5) + 
+    scale_fill_manual(values = c('#E69F00','#000099')) + 
+  labs(y="average relative humidity (%)", x=element_blank())+
+    theme_classic()+
+    theme(legend.position = "none")+
+    theme(plot.margin = margin(0,20,0,0))
+p2 <- fluxdat_daynight %>% 
+  ggplot(aes(y=flux_umol_m2_sec, x = day_night, fill=day_night)) + 
+    geom_boxplot(alpha=.5) + 
+    scale_fill_manual(values = c('#E69F00','#000099'),
+                      labels=c("day (8am-4pm)", "night (8pm-4am)")) +
+    labs(y=expression(paste("flux, "~mu*"mol"~"/m"^2)*"/sec"), 
+         x=element_blank())+
+    theme_classic()+
+    theme(legend.position = c(1.1, 0.9),
+          legend.title = element_blank())+
+    theme(plot.margin = margin(0,60,0,20))
+
+p3 <- p1+p2
+p3
+```
+
+The two-paneled plot showing the two different kinds of regression on data from the same fluxbot; edited to normalize the data to zero (PPM - medianPPM).
+```{r twopanel_regrs}
+
+# read in raw datafile, also on github (not labeled 'output', just labeled with name of the site):
+no_os2_raw <- read_csv(here("data", "raw accumulation data", "NO_OS2.csv"))
+
+no_os2_raw$Timestamp <- as_datetime(no_os2_raw$Unix.Epoch.Time)
+
+# add month, day, hour, minute columns:
+no_os2_raw$month <- format(no_os2_raw$Timestamp, "%m")
+no_os2_raw$day <- format(no_os2_raw$Timestamp, "%d")
+no_os2_raw$hour <- format(no_os2_raw$Timestamp, "%H")
+no_os2_raw$minute <- format(no_os2_raw$Timestamp, "%M")
+
+# calculate a 20s rolling average to show how it cuts down on variability but maintains trends in the raw data:
+no_os2_raw <- no_os2_raw %>%
+    dplyr::arrange(Timestamp) %>% # put in timestamp order
+    dplyr::group_by(month, day, hour) %>% 
+    dplyr::mutate(raw_20sec = zoo::rollmean(Raw.CO2.PPM, k = 20, fill = NA)) #calculate rolling average with 20s window
+
+# using wide-form data here, with layers: centering the data to start at zero to show the similar change in co2 (delta_co2) over the 5 min period, but with different appropriate regressions for each.  These plots are representative of the difference (e.g. centering the raw data + the averages + the regressions to start at zero took some trial and error simply because of the noise at the start of each observation with the raw data, and because the first 19 rows of the 20s rolling average for each hour are NAs mathematically).
+g1 <- no_os2_raw %>% 
+  filter(month == "09") %>%
+  filter(day == "03") %>% 
+  filter(hour == "08") %>% 
+  filter(minute >= "55") %>% 
+  filter(!is.na(raw_20sec)) %>%
+  ggplot()+
+  # geom_point(aes(x=Timestamp, y=(Raw.CO2.PPM-median(Raw.CO2.PPM))), color="gray", alpha = 0.6)+
+  # geom_point(aes(x=Timestamp, y=(raw_20sec-median(raw_20sec))), color="salmon", alpha=0.8)+
+  # geom_point(aes(x=Timestamp, y=(Raw.CO2.PPM-Raw.CO2.PPM[1])), color="gray", alpha = 0.6)+
+  geom_point(aes(x=Timestamp, y=(Raw.CO2.PPM-Raw.CO2.PPM[4])), color="gray", alpha = 0.6)+
+  geom_point(aes(x=Timestamp, y=(raw_20sec-raw_20sec[20])), color="salmon", alpha=0.8)+
+  theme_bw()+
+  labs(x = NULL, y = expression(paste("PPM"~"CO"[2])))+
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+  geom_smooth(mapping = aes(x = Timestamp, y = (raw_20sec-raw_20sec[20])),
+              method = 'lm', formula = y ~ poly(x,2), se= FALSE,
+              color = "darkred")+ # polynomial regression
+  ggtitle("Sept. 3rd, 2019, 8:55-9:00")+
+  ylim(-75, 225)
+
+g2 <- no_os2_raw %>% 
+  filter(month == "09") %>%
+  filter(day == "04") %>% 
+  filter(hour == "07") %>% 
+  filter(minute >= "55") %>% 
+  filter(!is.na(raw_20sec)) %>%
+  ggplot()+
+  # geom_point(aes(x=Timestamp, y=(Raw.CO2.PPM-(median(Raw.CO2.PPM)))), color="gray", alpha = 0.6)+
+  # geom_point(aes(x=Timestamp, y=(raw_20sec-(median(raw_20sec)))), color="darkgoldenrod2", alpha=0.9)+
+  geom_point(aes(x=Timestamp, y=(Raw.CO2.PPM-Raw.CO2.PPM[2])), color="gray", alpha = 0.6)+
+  geom_point(aes(x=Timestamp, y=(raw_20sec-raw_20sec[20])), color="darkgoldenrod2", alpha=0.9)+
+  theme_bw()+
+  labs(x = NULL, y = NULL)+
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+  geom_smooth(mapping = aes(x = Timestamp, y = (raw_20sec-raw_20sec[20])),
+              method = 'glm', formula = y ~ x, se= FALSE,
+              color = "darkred")+ #linear regression
+  ggtitle("Sept. 4th, 2019, 7:55-8:00")+
+  ylim(-75, 225)
+  
+# library(gridExtra)
+grid.arrange(g1, g2, nrow = 1)
+```
+
+density distribution of fluxes calculated with L and Q regressions (replacing fig. 7):
+```{r distr_regr}
+
+fluxdat_final %>% 
+  drop_na(regr) %>%
+  ggplot(aes(x=flux_umol_m2_sec, fill=regr))+
+  geom_density(alpha = .65)+
+  scale_fill_brewer(palette = "Pastel1", name = "regr", labels = c("linear", "quadratic"))+
+  labs(x=expression(paste("flux, "~mu*"mol"~"/m"^2)*"/sec"),
+       y=expression(paste("density distribution")))+
+  theme_classic()+
+  theme(axis.text.x = element_text(size=12),
+        axis.text.y = element_text(size=10),
+        axis.title.y = element_text(size = 12))+
+  theme(legend.title = element_blank(), legend.text = element_text(size=12), 
+        legend.position = c(.85, .85))
+
+```
+
+Density distribution of all fluxes, with inset log-transformed distribution:
+```{r density_distribution}
+
+# calculate mean
+mu <- mean(fluxdat_final$flux_umol_m2_sec)
+
+# probability density function in GGplot: 
+dens_g <- ggplot(fluxdat_final, aes(x=flux_umol_m2_sec, y=0.3))+
+  # add horizontal boxplot, narrow (0.05) width
+  # geom_boxplot(width = 0.05, fill="lightblue", outlier.colour = "darkred", outlier.shape = 1, outlier.alpha = 1)+
+  geom_boxplot(width = 0.05, fill="lightblue", outlier.shape = NA)+
+  # add density plot
+  geom_density(aes(x=flux_umol_m2_sec), fill="lightblue", inherit.aes = FALSE)+
+  scale_fill_discrete()+
+  theme_classic()+
+  xlab(expression(paste("soil carbon flux, "~mu*"mol"~"/m"^2*"/sec")))+
+  # xlab(bquote('soil carbon flux ('*mu'mol'~CO[2]~m^-2~s^-1*')'))+
+  ylab('probability density function')+
+  # add mean line:
+  geom_vline(aes(xintercept = mean(flux_umol_m2_sec)),
+             color="red", linetype="dashed", size=0.5, alpha = 0.75)
+
+# need to make plot of log-transformed data, to add as inset to the above graph
+log_g <- ggplot(data=fluxdat_final, aes(x=flux_umol_m2_sec))+
+  geom_density(aes(x=flux_umol_m2_sec), fill="lightblue", alpha=0.4, inherit.aes = FALSE)+
+  scale_x_log10(labels=scales::comma)+
+  theme_classic()+
+  xlab("log transformed soil carbon flux")+
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_text(vjust = -1))
+log_g
+
+# Okay now put them together with an inset. See the following for source code: https://www.r-bloggers.com/2019/02/plots-within-plots-with-ggplot2-and-ggmap/
+dens_g + annotation_custom(ggplotGrob(log_g), xmin=20, xmax=40,ymin=0.15, ymax = 0.3)
+```
+
+
+Updated QAQC plot:
+# Visualization of the breakdown of QAQC flags (uncleaned 20s mean flux data):
+Here I will create a visualization of the fluxes that were removed from the overall final dataset due to their QAQC scores being over 11 total. Need to do a bit of data cleaning to get the 'removed' dataset.
+Remember that flags (and associated values) are:
+			1 - if dP > dP_max (default dP_max = 10 hPa) (1)
+			2 - if dT > dT_max (default dT_max = 2.5 deg-C) (10)
+			3 - if CO2 > CO2_max (default CO2_max = 3000 ppm) (100)
+			4 - if n_obs < min_obs (default min_obs = 270) (1000)
+			5 - if dCO2 < dCO2_min (default dCO2_min = 10 ppm) (10000)
+			6 - if sCO2 < 0 (sCO2 is difference between last CO2 ppm value and first value) (100000)
+			7 - mCO2 is True (e.g. last value is less than the mean, and first value is greater than the mean) (1000000) 
+```{r QAQC_data}
+#https://yjunechoe.github.io/posts/2020-06-30-treemap-with-ggplot/
+
+# read full dataset, then select just the "failed qaqc" events:
+# qaqcdat <- read_csv(here("pressure_humiditycorrected/all_events_with_bad_20.csv"))
+qaqcdat <- fluxdata_20s_2019 %>% 
+  filter(location == "Open Soil" | location == "Under Tree") %>%  # select only open soil and under tree sites
+  filter(timestamp > "2019-08-22 23:59:59") %>%                   #...remove data from before Aug. 23rd...
+  filter(year == 2019) %>%                                        # remove any that aren't from the right year
+  filter(qaqc_flags > 11)                                         # select data with flags GREATER than 11; what we want!
+
+# remove all data from October for NO OS 1, when it had the 'rotating lid': first, make an 'exclude this' df for those points.
+noos1oct <- qaqcdat %>% 
+  filter(treatment == "O" & location == "Open Soil" & replicate == 1) %>% 
+  filter(month > 9)
+# then, use anti_join (dplyr) to remove those rows in 'noos1oct' from 'qaqcdat':
+qaqcdat <- anti_join(qaqcdat, noos1oct)
+# A TOTAL OF 725 QAQC FAILURES, NOT CONSIDERING THOSE WE REMOVED FOR OBVIOUS REASON (AKA DATE IS WRONG, WE REMOVED IT FOR SEPARATE ANALYSIS, DISREGARDING TERMITE DATA)
+
+# now we have a final qaqc 'bad' flags dataset.  Next up: graphical interpretation of it. Summarize the data:
+qaqc_sum <- qaqcdat %>% 
+  group_by(qaqc_flags) %>% 
+  summarise(counts = n())
+
+# add vector of 'reasons' to summed df, in order, consulting list of qaqc 'points' above:
+# qaqc_sum$reason <- c("max(CO₂) > 3000ppm", 
+#             "# obs < 270",
+#             "max(CO₂) > 3000ppm & dCO₂ < 10ppm",
+#             "max(CO₂) > 3000ppm & dCO₂ < 10ppm & dTemp > 2.5C",
+#             "dCO₂ < 10ppm & # observations < 270",
+#             "negative net dCO₂",
+#             "negative net dCO₂ & dTemp > 2.5C",
+#             "negative net dCO₂ & # observations < 270")
+
+treemap(qaqc_sum,
+        index = "qaqc_flags",
+        vSize = "counts",
+        type = "index",
+        palette = "Paired",
+        # fontcolor.labels = "white",
+        fontcolor.labels = c("transparent"), # remove labels, I'll customize to match other figs
+        title = "qaqc",
+        fontsize.title = 0) # remove title, this is clumsy but it works
+```
+
+calculated flux compared to raw data over one week (shows patterns over 24hrs): unchanged from initial submission
+# Visualization of fluxes over one random week:
+```{r examplefluxes_overtime}
+
+# It's possible I'll want to play around with other randomly-pulled bots and weeks; but in essence, this figure is demonstrating one 7-day period of time in flux at one individual bot.
+# select the NO OS2 bot:
+no_os2_fluxes <- fluxdat_final %>% 
+  filter(treatment == "O" & location == "Open Soil" & replicate == 2) %>% 
+  filter(month == 9) %>% 
+  filter(day>0 & day<9)
+  # filter(day>12 & day<17)
+
+# plot data from September 1st through 7th:
+p1 <- no_os2_fluxes %>% 
+  ggplot(aes(x=timestamp.b, y=flux_umol_m2_sec))+
+  geom_point(color="salmon")+
+  geom_line(linetype = "dotted", color = "black")+
+  scale_x_datetime(labels = date_format("%b. %e, %H:%M"),
+                   date_breaks = "1 day",
+                   date_minor_breaks = "1 hour")+
+  theme_classic()+
+  theme(axis.title = element_text(vjust = 0.25),
+        axis.text.x = element_text(vjust = 0.7, hjust = .8, angle = 15))+
+  labs(x=NULL,
+       y=expression(paste("flux, "~mu*"mol"~"/m"^2)*"/sec"),
+       title = "No wildlife or cattle allowed, open soil site #2")+
+  geom_vline(xintercept = as.numeric(ymd_h(
+    c("2019-09-1 0", "2019-09-2 ", "2019-09-3 0","2019-09-4 0",
+      "2019-09-5 0","2019-09-6 0","2019-09-7 0", "2019-09-8 0", "2019-09-09 0"))),
+    linetype="dashed", color = "#66A182", size=.6)
+p1
+```
+# Visualization of raw data over same week (raw data):
+```{r rawdata_overtime}
+# read in raw datafile, also on github (not labeled 'output', just labeled with name of the site):
+no_os2_raw <- read_csv(here("data", "raw accumulation data", "NO_OS2.csv"))
+
+no_os2_raw$Timestamp <- as_datetime(no_os2_raw$Unix.Epoch.Time)
+
+# add month, day, hour columns:
+no_os2_raw$month <- format(no_os2_raw$Timestamp, "%m")
+no_os2_raw$day <- format(no_os2_raw$Timestamp, "%d")
+no_os2_raw$hour <- format(no_os2_raw$Timestamp, "%H")
+
+# calculate a 20s rolling average to show how it cuts down on variability but maintains trends in the raw data:
+no_os2_raw <- no_os2_raw %>%
+    dplyr::arrange(Timestamp) %>% # put in timestamp order
+    dplyr::group_by(month, day, hour) %>% 
+    dplyr::mutate(raw_20sec = zoo::rollmean(Raw.CO2.PPM, k = 20, fill = NA)) #calculate rolling average with 20s window
+
+# plot same 7-day period from above chunk, with raw data in gray and 20s smoothed data in same salmon on top:
+# set vector of breaks first:
+mybreaks <- lubridate::ymd_hm(c("2019-09-01 00:00","2019-09-02 00:00","2019-09-3 00:00","2019-09-4 00:00","2019-09-5 00:00","2019-09-6 00:00", "2019-09-7 00:00", "2019-09-8 00:00", "2019-09-09 00:00"))
+
+# filter the data by month, day
+p2 <- no_os2_raw %>% 
+  filter(month == "09") %>%
+  filter(day == "01" | day == "02" | day == "03" | 
+           day == "04" | day == "05" | day == "06" | 
+           day == "07" | day == "08") %>%             #days and months currently coded in character class
+  ggplot()+
+  geom_point(aes(x=Timestamp, y=Raw.CO2.PPM), color="gray", alpha=0.4)+ #raw data
+  geom_point(aes(x=Timestamp, y=raw_20sec), color="salmon", alpha=0.2)+
+  theme_classic()+
+  scale_x_datetime(breaks = mybreaks, date_labels = "%b. %e, %H:%M")+
+  labs(x = NULL, y = expression(paste("concentration of"~CO[2]~", PPM")))+
+  geom_vline(xintercept = mybreaks, linetype="dashed", color = "#66A182", size=.6) +
+  theme(axis.title = element_text(vjust = 0.25), 
+        axis.text.x = element_blank())+
+  ggtitle("No wildlife or cattle allowed, open soil site #2")
+p2
+```
+
+put them together
+```{r}
+p3 <- ggarrange(p2, p1, nrow = 2, labels = c("A", "B"), label.x = .9, label.y = .9, align = "v")
+p3
+```
+
+Rotating head figure, aka NOOS1 during the october experiment of putting donor "heads" on the base every two days:
+# clean the data:
+```{r rotatinghead_data}
+# plot just the October (e.g. rotating head) data for NO OS1
+# we already have an 'exclude' dataframe from cleaning up / producing the final dataset (aka these exact points, which we then anti-joined with the original fluxdat_final dataframe to remove them)
+# 229 total fluxes
+noos1_rot <- exclude
+
+# want to examine each time chunk (e.g. how many days an individual head was on the location before being swapped according to our calendar). The following (inefficiently) separates out each period and adds an identifier called 'rotation'. These are roughly around 10am unless noted otherwise in the field notes; some days had times written at the header with date, and some did not, but generally it all happened between 9am-12pm and can be corroborated by looking at where the ambient data shifts visibly.
+
+d1 <- noos1_rot %>%   
+  filter(timestamp >= as_datetime("2019-10-05 00:00:00") & 
+           timestamp <= as_datetime("2019-10-08 10:00:00")) %>% # notes indicate between 9 and 10
+  add_column(rotation = 1)
+d2 <- noos1_rot %>%  
+  filter(timestamp > as_datetime("2019-10-08 10:00:00") &
+           timestamp <= as_datetime("2019-10-10 12:00:00")) %>% # notes indicate before noon
+  add_column(rotation = 2)
+d3 <- noos1_rot %>%  
+  filter(timestamp > as_datetime("2019-10-10 12:00:00") &
+           timestamp <= as_datetime("2019-10-12 12:00:00")) %>% #no time; plot indicates ~ <12pm?
+  add_column(rotation = 3)
+d4 <- noos1_rot %>%  
+  filter(timestamp > as_datetime("2019-10-12 12:00:00") &
+           timestamp <= as_datetime("2019-10-15 10:00:00")) %>% #no time; plot indicates ~ <10am?
+  add_column(rotation = 4)
+d5 <- noos1_rot %>%  
+  filter(timestamp > as_datetime("2019-10-15 10:00:00") &
+           timestamp <= as_datetime("2019-10-17 12:00:00")) %>% #no time; plot indicates ~ <12pm?
+  add_column(rotation = 5)
+d6 <- noos1_rot %>%  
+  filter(timestamp > as_datetime("2019-10-17 12:00:00") &
+           timestamp <= as_datetime("2019-10-19 12:00:00")) %>% #no time; assume ~ <12pm
+  add_column(rotation = 6)
+d7 <- noos1_rot %>%  
+  filter(timestamp > as_datetime("2019-10-19 12:00:00") &
+           timestamp <= as_datetime("2019-10-22 10:00:00")) %>% #no time; plot indicates ~ <10am? assume morning due to note on 'removing covers after rainfall' which always happened in the morning as soon as possible to avoid blocking sunlight
+  add_column(rotation = 7)
+d8 <- noos1_rot %>%  
+  filter(timestamp > as_datetime("2019-10-22 10:00:00") &
+           timestamp <= as_datetime("2019-10-24 12:00:00")) %>% #no time; plot indicates ~ 12pm?
+  add_column(rotation = 8)
+d9 <- noos1_rot %>%   
+  filter(timestamp > as_datetime("2019-10-24 12:00:00")) %>% 
+  add_column(rotation = 9)
+
+# bind new cols together with identifier column
+d10 <- rbind(d1, d2, d3, d4, d5, d6, d7, d8, d9)
+
+# vector of approximate times when heads were swapped (using midnight as proxy even tho heads were swapped during fieldwork during the day)
+mybreaks <- lubridate::ymd_hm(c("2019-10-08 10:00","2019-10-10 12:00","2019-10-12 12:00","2019-10-15 10:00","2019-10-17 12:00","2019-10-19 12:00", "2019-10-22 10:00", "2019-10-24 12:00"))
+
+# vector of sample sizes per group (e.g. 'rotation')
+n_lab <- paste(levels(d10$rotation), "\nN = ",table(d10$rotation), "",sep="")
+n_lab <- as.numeric(n_lab)
+
+# plot data in boxplot form for fluxes, line for ambient:
+d10 %>%
+  ggplot(aes(x=timestamp.b))+  
+  geom_line( aes(y=ambient_CO2_ppm, group=rotation), color = "darkgoldenrod2", size=1)+
+  geom_boxplot( aes(y=flux_umol_m2_sec*100, group=rotation), fill="salmon", alpha=0.3,
+                outlier.colour="darkred", varwidth = TRUE)+
+  scale_y_continuous(name = "ambient CO2 (ppm) (yellow line)",
+                     sec.axis = sec_axis(~./100, 
+                                         name = expression(paste("flux, "~mu*"mol"~"/m"^2)*"/sec (red boxplots)")))+
+  theme_classic()+
+  theme(legend.position = "none")+
+  scale_x_datetime(date_breaks = "1 day",
+                   date_labels = "%b %d, %H:%M")+ # separate ticks by date, one day at a time+
+  theme(axis.text.x = element_text(angle=25, hjust = 1, size=7))+
+  geom_vline(xintercept = mybreaks, linetype="dashed", color = "#66A182", size=.6)+
+  labs(x = NULL)
+```
+# quick stats:
+```{r stats_rotatinghead}
+
+# test if there are significant differences between chunks of data collected by different fluxbot heads, for FLUX:
+rotation_lm <- lm(flux_umol_m2_sec ~ as.factor(rotation), data = d10)
+rotation_aov <- aov(rotation_lm)
+summary(rotation_aov) # p = 0.0202; there is a significant difference between rotations in terms of flux; but tbh I'm not sure this matters (it's over time...)
+eta_squared(rotation_aov, partial = FALSE) # ETA2 = 0.06 aka only 6% of the variance is caused by rotations (using ETA-squared value, which is the percent of the total variance that is associated with a given factor (in this case, chamberr lid rotations))
+
+# test if there are significant differences between chunks of data collected by different fluxbot heads, for AMBIENT:
+rotation_lm2 <- lm(ambient_CO2_ppm ~ as.factor(rotation), data = d10)
+rotation_aov2 <- aov(rotation_lm2)
+summary(rotation_aov2) # p = <2e-16 *** ambient CO2 detection was significantly different across rotations
+eta_squared(rotation_aov2, partial = FALSE) # whereas for ambient, 64% of the variance is caused by rotations
+
+```
+
+# Allan variance figure (raw data):
+This figure will go in the results section of the methods paper, and will demonstrate how much time is optimal to average the data by (taken every second; averaged to every X seconds). Taking the Allan Variance will allow us to account for the fact that there is some temporal variability in the raw data, and it can be 'cleaned up' via averaging without negatively impacting the results.
+This figure will show:
+- in a period of time during which CO2 is constant (e.g. steady-state), what do the functions look like as a result of averaging time around a constant value (e.g. 20s)?
+- what is the noise around this averaging result?
+This data will allow us to:
+- determine size of averaging window for raw data processing prior to regression and flux calculation.
+
+```{r Allan_variance}
+# import data: in same 'data' folder on github:
+allan <- read_csv(here("data", "allen_variance_results.csv"))
+
+# explore data: what does it look like? visual confirmation of 20s rolling average as maintaining optimal temporal detail and reducing the noise from per-second raw data:
+plot(allan$`tau (sec)`, allan$`std (ppm)`)
+
+# final plot:
+allan %>% 
+  ggplot(aes(`tau (sec)`, `std (ppm)`))+
+  geom_point(colour = "black", size = 3, alpha = 1/3)+
+  theme_classic()+
+  labs(x="averaging time in seconds (\u03C4)", #unicode value for small tau
+       y="Allan Variance (PPM)")+
+  geom_vline(xintercept = 20, colour = "red", linetype = "longdash")+
+  scale_x_continuous(breaks = seq(0, 120, 20))
+```
+# Relative uncertainty figures:
+We calculate the relative uncertainty of each of our flux observations, and then compare it to the R2 value for the associated regression. 
+
+We're defining absolute flux uncertainty as (max - min)/2.  We're defining relative flux uncertainty as ((max-min)/2)/flux estimate (aka (abs flux uncertainty/ flux estimate).  R2 is calculated in the fluxboy.py batch processing step, as is max, min, and midrange flux estimates (based on those three betas for each regression).  I'm using absolute values for visualization purposes to get visual ideas of the amplitude of errors.
+```{r relfluxuncertainty}
+
+# calculate *absolute* flux uncertainty
+fluxdat_final$abs_uncertainty <- (abs((fluxdat_final$flux_max_umol_m2_sec-fluxdat_final$flux_min_umol_m2_sec)/2))
+
+# calculate relative flux uncertainty
+fluxdat_final$rel_uncertainty <- abs(fluxdat_final$abs_uncertainty/fluxdat_final$flux_umol_m2_sec)
+
+######################## final plots for paper:
+```
+
+```{r}
+# relative flux uncertainty compared to flux estimate:
+u1 <- fluxdat_final %>%
+  filter(flux_umol_m2_sec > 0.0) %>% 
+  filter(R2 > 0) %>% 
+  ggplot(aes(y=rel_uncertainty*100, x=flux_umol_m2_sec))+
+  # ggplot(aes(y=rel_uncertainty, x=flux_umol_m2_sec))+
+  geom_point(alpha=0.25)+
+  theme_classic()+
+  # labs(x = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"),
+  labs(x=element_text(""),
+       y = "relative uncertainty, %")+
+  theme(axis.text = element_text(size=18),
+        axis.title = element_text(size=21))+
+  theme(axis.text = element_text(size=18),
+        axis.title = element_text(size=21),
+        axis.text.y = element_text(color = c("black", "red", "black", "black", "black")))+
+  # scale_y_continuous(breaks = c(100, 2500, 5000, 7500, 10000), 
+  #                    labels = c("100", "2.5k", "5k", "7.5k", "10k"))+
+  geom_hline(yintercept = 100, linetype = "dashed", color = "red")
+u1
+```
+
+```{r}
+# relative flux uncertainty compared to R2:
+u2 <- fluxdat_final %>%
+  filter(flux_umol_m2_sec > 0.0) %>%
+  filter(R2 > 0) %>% 
+  ggplot(aes(y=rel_uncertainty*100, x=R2))+
+  geom_point(alpha=0.25)+
+  theme_classic()+
+  labs(x = expression(paste("R"^2)),
+       y = "relative uncertainty (%)")+
+  ylim(0,10000)+
+  theme(axis.text = element_text(size=18),
+        axis.title = element_text(size=21),
+        axis.text.y = element_text(color = c("red", "black", "black", "black", "black")))+
+  scale_y_continuous(breaks = c(100, 2500, 5000, 7500, 10000), 
+                     labels = c("100", "2.5k", "5k", "7.5k", "10k"))+
+  geom_hline(yintercept = 100, linetype = "dashed", color = "red")
+u2
+```
+
+```{r}
+# flux compared to R2:
+u3 <- fluxdat_final %>%
+  filter(flux_umol_m2_sec > 0.0) %>%
+  filter(R2 > 0) %>%
+  ggplot(aes(x=flux_umol_m2_sec, y=R2))+
+  geom_point(alpha=0.25)+
+  theme_classic()+
+  labs(y = expression(paste("R"^2)),
+       x = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"))+
+  theme(axis.text = element_text(size=18),
+        axis.title = element_text(size=21))
+u3
+```
+
+plot together:
+```{r}
+u4 <- ggarrange(u1, u2, u3 + rremove("x.text"), 
+          labels = c("A", "B", "C"),
+          ncol = 2, nrow = 2)
+u4
+```
+
+
+
+# descriptive stats of relative flux uncertainty:
+```{r stats_relativeflux}
+# what are the "low" relative flux uncertainties?
+fluxdat_final %>%
+  filter(rel_uncertainty*100 < 20) %>%
+  tally() #9289 out of 10107 fluxes have less than 25% relative flux uncertainty	
+
+fluxdat_final %>%
+  filter(rel_uncertainty*100 > 100) %>%
+  tally() #164	of the relative flux uncertainties were over 100%
+fluxdat_final %>%
+  filter(rel_uncertainty*100 > 100) %>%
+  filter(flux_umol_m2_sec < 0) %>% 
+  tally() #58 of the over-100% rel flux uncertainties associated with negative fluxes
+fluxdat_final %>%
+  filter(rel_uncertainty*100 > 100) %>%
+  filter(flux_umol_m2_sec < 0.15) %>% 
+  tally() # 151 (out of 164) of the higher-than-100% flux uncertainties associated with fluxes extremely close to zero (e.g. less than 0.15 umol/m2/sec)	
+
+fluxdat_final %>%
+  filter(rel_uncertainty*100 > 100) %>%
+  filter(flux_umol_m2_sec < -0.15) %>%
+  tally() # all but 7 of the higher-than-100% flux uncertainties are associated with fluxes clustering around zero i.e. -0.17 and 0.17 umol/m2/sec
+
+```
+
+# descriptive stats for R2:
+```{r stats_R2}
+# how many flux estimates associated with negative R2 values?
+fluxdat_final %>%
+  filter(R2 < 0) %>%
+  tally() # 825 fluxes associated with negative R2 values; 9%
+
+# what is the range of fluxes associated with negative R2s?
+fluxdat_final %>% 
+  filter(R2 < 0) %>% 
+  filter(flux_umol_m2_sec < 0) %>% 
+  tally() # 327 of the negative R2s associated with negative fluxes
+
+fluxdat_final %>% 
+  filter(R2 < 0) %>% 
+  filter(flux_umol_m2_sec < 0 & flux_umol_m2_sec > -1) %>% 
+  tally() # 286 of negative R2s associated with low-scale negative fluxes (e.g. between -1 and 0)
+
+# what about high R2s?
+fluxdat_final %>% 
+  filter(R2 > 0.9) %>% 
+  tally() # 4660 out of 10107 fluxes had higher than 90% R2 associated with the regression used to calculate it (46%)
+fluxdat_final %>% 
+  filter(R2 > 0.75) %>% 
+  tally() # 6926 out of 10107 fluxes had higher than 75% R2 associated with the regression used to calculate it (69%)
+
+# correlation between R2 and flux estimate: spearman bc non-normally distributed data
+cor(fluxdat_final$flux_umol_m2_sec, fluxdat_final$R2, method = "spearman")
+# 0.615961, aka 62%, wow ok!  this is relatively high.  Much higher with the humidity, pressure adjustment than before (when it was ~24%)
+
+# Linear vs. Quadratic regression R2s:
+fluxdat_final %>% 
+  filter(regr == "L") %>% 
+  summarise(lin_mean_R2 = mean(R2)) #0.4695008
+fluxdat_final %>% 
+  filter(regr == "Q") %>% 
+  summarise(lin_mean_R2 = mean(R2)) #0.7335319
+```
+# descriptive stats of R2 and relative flux uncertainty relationship:
+```{r R2_reluncertainty}
+fluxdat_final %>% 
+  filter(R2 < .5) %>% 
+  tally() # 1803 fluxes have an R2 of under 0.5
+
+fluxdat_final %>% 
+  filter(R2 < .5) %>% 
+  filter(rel_uncertainty > (.5)) %>%
+  tally() # only 344 fluxes with low R2s ALSO HAVE high relative uncertainty around the estimate of flux (e.g. 20% of fluxes with low R2s; 3.4% of the entire flux dataset has both low R2 and higher relative uncertainty.)
+  
+fluxdat_final %>% 
+  filter(R2 < .5) %>% 
+  filter(rel_uncertainty < (.5)) %>%
+  tally() # 1459 of the 1803 under-0.5-R2 crew also have a low (under 0.5) relative flux uncertatinty
+# this means...that 86% of the low-confidence-in-our regression bunch also have low relative flux uncertainty, meaning that the vast majority are doing well in terms of uncertainty around the estimate of flux despite a low R2.
+```
+
+
+# descriptive statistics of all fluxes:
+Here I'm rounding up all the descriptive statistics we use in the paper (e.g. how many "good" fluxes passed QAQC and are included in the final dataset, what's the mean/median flux value, how many are negative and by how much, etc.).
+```{r descriptive_stats}
+# count how many individual observations were made that passed QAQC and ended up in the final dataset:
+fluxdat_final %>% 
+  tally()
+# 10107 total flux observations
+
+# mean flux of entire dataset:
+mean(fluxdat_final$flux_umol_m2_sec)
+# 4.050193 umol/m2/sec
+
+# min and max:
+min(fluxdat_final$flux_umol_m2_sec) #-3.695
+max(fluxdat_final$flux_umol_m2_sec) # 46.395
+
+# how many negative:
+fluxdat_final %>% 
+  filter(flux_umol_m2_sec < 0) %>%
+  tally() # 334 negative fluxes
+
+# how many negatives were < -1:
+fluxdat_final %>% 
+  filter(flux_umol_m2_sec < -1) %>%
+  tally() # 42 were less than -1, meaning that (334-42 = 292) were between 0 and -1
+
+# how many calculated with Q vs L?
+fluxdat_final %>% 
+  filter(regr == "Q") %>% 
+  tally() # 6780 calculated with quadratic regression
+fluxdat_final %>% 
+  filter(regr == "L") %>% 
+  tally() # 3327 calculated with linear regression
+
+# stats of fluxes during day vs. night: first add column with day/night identifier
+fluxdat_final = fluxdat_final %>% 
+  mutate(day_night_ID = 
+           case_when(hour == 9:16 ~ "day",
+                     hour == 20:23 | hour == 0:4 ~ "night"))
+```
+
+# descriptive stats of day vs night measurements:
+```{r dayvsnight}
+# day vs night descriptive stats:
+fluxdat_final %>%
+  group_by(day_night_ID) %>% 
+  drop_na() %>% 
+  get_summary_stats(flux_umol_m2_sec)
+# day mean = 3.985; n = 485; median = 2.979; se = 0.185
+# night mean: 4.459; n = 818; median = 3.429; se = 0.139
+
+# compare two means with two-sided t-test
+# library(rstatix)
+stat.test <- fluxdat_final %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ day_night_ID, paired = FALSE)
+stat.test
+# p = 0.0415
+# plot:
+p <- fluxdat_final %>% 
+  drop_na() %>% 
+  ggboxplot(
+  x = "day_night_ID", y = "flux_umol_m2_sec",
+  color = "day_night_ID", palette = "jco",
+  xlab = FALSE)
+  # ylab = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"))
+
+# Add the p-value manually
+p + stat_pvalue_manual(stat.test, label = "T-test: p = {p}", y.position = 34) +
+  rremove("legend")
+
+```
+
+# a. drepanolobium vs. open soil descriptive stats: R library "rstatix"
+```{r featurevsfeature}
+# compare two means with two-sided t-test
+stat.test <- fluxdat_final %>%
+  filter(day_night_ID == "night") %>%
+  # filter(day_night_ID == "day") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ location, paired = FALSE)
+stat.test
+# ALL HOURS: p = 0.00107
+# DAY HOURS: p = 0.673
+# NIGHT HOURS: p = 4.67e-06
+
+# compare means of day/night depending on location:
+stat.test <- fluxdat_final %>%
+  filter(location == "Open Soil") %>%
+  # filter(day_night_ID == "day") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ day_night_ID, paired = FALSE)
+stat.test
+# p = 5.36e-07
+
+stat.test <- fluxdat_final %>%
+  # filter(location == "Under Tree") %>%
+  # filter(location == "Open Soil") %>% 
+  # filter(day_night_ID == "day") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ location, paired = FALSE)
+stat.test
+# day/night difference on under tree soils, all hours: p = 0.266
+# day/night difference on open soil soils, all hours: p = 0.00388
+# difference between the two soil types, all hours: p = 0.00107
+
+# counting and basic stats:
+fluxdat_final %>%
+  group_by(location) %>% 
+  drop_na() %>% 
+  get_summary_stats(flux_umol_m2_sec)
+# Open soil: n=738, median=3.342, mean = 4.584
+# Under tree: n=565, median=3.281, mean = 3.889
+
+fluxdat_final %>%
+  group_by(location, day_night_ID) %>% 
+  drop_na() %>% 
+  get_summary_stats(flux_umol_m2_sec)
+# Open Soil	day	n: 259	median:	2.702	mean: 3.913
+# Open Soil	night	n: 479	median:	3.505	mean: 4.946	
+# Under Tree	day	n: 226	median:	3.181	mean: 4.068
+# Under Tree	night	n: 339	median:	3.357	mean: 3.770
+
+treatment.labs <- c("all herbivores allowed", "total exclosure")
+names(treatment.labs) <- c("MWC", "O")
+
+fluxdat_final %>% 
+  na.omit() %>% 
+  ggplot(aes(x=location, y=flux_umol_m2_sec, fill = day_night_ID))+
+  geom_boxplot(alpha = 0.5)+
+  facet_wrap(~treatment,
+             labeller = labeller(treatment = treatment.labs))+
+  labs(x = element_blank(), y = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"))+
+  scale_fill_manual(values = c('#E69F00','#000099'),
+                      labels=c("day (8am-4pm)", "night (8pm-4am)"))+
+  theme_classic()+
+  theme(legend.title = element_blank(), legend.position = c(.9,.9))
+```
+
+```{r humidity_daynight_location}
+
+# fluxdat_daynight by location:
+
+t1 <- fluxdat_final %>% 
+  na.omit() %>% 
+  ggplot(aes(y=avg_rel_humidity, x=day_night_ID, fill=day_night_ID)) + 
+    geom_boxplot(alpha=.5) + 
+    scale_fill_manual(values = c('#E69F00','#000099')) + 
+  labs(y="average relative humidity (%)", x=element_blank())+
+  # facet_wrap(~treatment)+
+    theme_classic()+
+    theme(legend.position = "none")+
+    theme(plot.margin = margin(0,20,0,0))
+t2 <- fluxdat_final %>% 
+  na.omit() %>% 
+  ggplot(aes(y=flux_umol_m2_sec, x = day_night_ID, fill=day_night_ID)) + 
+    geom_boxplot(alpha=.5) + 
+    scale_fill_manual(values = c('#E69F00','#000099'),
+                      labels=c("day (8am-4pm)", "night (8pm-4am)")) +
+    labs(y=expression(paste("flux, "~mu*"mol"~"/m"^2)*"/sec"), 
+         x=element_blank())+
+  # facet_wrap(~treatment)+
+    theme_classic()+
+    theme(legend.position = c(1.1, 0.9),
+          legend.title = element_blank())+
+    theme(plot.margin = margin(0,60,0,20))
+
+t3 <- ggarrange(t1+t2, nrow = 2)
+t3
+
+# t1
+```
+
+# MWC vs O descriptive stats: R library "rstatix"
+```{r featurevsfeature}
+# compare two means with two-sided t-test
+stat.test <- fluxdat_final %>%
+  # filter(day_night_ID == "night") %>%
+  # filter(day_night_ID == "day") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ treatment, paired = FALSE)
+stat.test
+# p = 2.68e-09
+# significant difference across the treatments (this is consistent both in day and nighttime)
+
+# compare means of day/night depending on treatment:
+stat.test <- fluxdat_final %>%
+  filter(treatment == "MWC") %>%
+  # filter(treatment == "O") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ day_night_ID, paired = FALSE)
+stat.test
+# p = 0.408 (MWC night vs. day)
+# p = 0.000687 (O night vs day) So there is a difference between night/day in O, but not MWC
+
+# counting and basic stats:
+fluxdat_final %>%
+  group_by(treatment) %>% 
+  drop_na() %>% 
+  get_summary_stats(flux_umol_m2_sec)
+# MWC: n = 721, median=3.489, mean = 4.843	
+# O: n = 582, median=3.061, mean = 3.589
+# Higher average flux in MWC compared to O
+
+fluxdat_final %>%
+  group_by(treatment, location, day_night_ID) %>% 
+  drop_na() %>% 
+  get_summary_stats(flux_umol_m2_sec)
+# MWC	day	  n: 276	median:	3.332		mean: 4.654	
+# MWC	night	n: 445	median:	3.543		mean: 4.960	
+# O	day	    n: 209	median:	2.499		mean: 3.102
+# O	night	  n: 373	median:	3.336		mean: 3.861
+
+```
+
+
+Plot the above location stats (change inputs as required for desired plot):
+```{r plots}
+# get p-value:
+stat.test.day <- fluxdat_final %>%
+  filter(day_night_ID == "day") %>%
+  # filter(day_night_ID == "night") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ location, paired = FALSE)
+stat.test.night <- fluxdat_final %>%
+  # filter(day_night_ID == "day") %>%
+  filter(day_night_ID == "night") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ location, paired = FALSE)
+
+# plot:
+p <- fluxdat_final %>%
+  # filter(day_night_ID == "day") %>%
+  filter(day_night_ID == "night") %>%
+  drop_na() %>%
+  ggstripchart(
+  x = "location", y = "flux_umol_m2_sec",
+  color = "location", palette = "jco")
+
+# Add the p-value manually
+a1 <- p + stat_pvalue_manual(stat.test.day, label = "T-test: p = {p}", y.position = 30) +
+  rremove("legend")+labs(x = element_blank(), y = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"))
+
+a2 <- p + stat_pvalue_manual(stat.test.night, label = "T-test: p = {p}", y.position = 30) +
+  rremove("legend")+labs(x = element_blank(), y = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"))
+
+a3 <- ggarrange(a1, a2, nrow = 2, labels = c("day", "night"), label.x = .9, label.y = 1)
+a3
+
+```
+
+Plot the above treatment stats (change inputs as required for desired plot):
+```{r plots}
+# get p-value:
+stat.test.day <- fluxdat_final %>%
+  filter(day_night_ID == "day") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ treatment, paired = FALSE)
+stat.test.night <- fluxdat_final %>%
+  filter(day_night_ID == "night") %>%
+  drop_na() %>% 
+  t_test(flux_umol_m2_sec ~ treatment, paired = FALSE)
+
+# plot:
+b <- fluxdat_final %>%
+  # filter(day_night_ID == "day") %>%
+  filter(day_night_ID == "night") %>%
+  drop_na() %>%
+  ggstripchart(
+  x = "treatment", y = "flux_umol_m2_sec",
+  color = "treatment")
+
+# Add the p-value manually
+b1 <- b + stat_pvalue_manual(stat.test.day, label = "T-test: p = {p}", y.position = 30) +
+  rremove("legend")+labs(x = element_blank(), y = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"))
+
+b2 <- b + stat_pvalue_manual(stat.test.night, label = "T-test: p = {p}", y.position = 30) +
+  rremove("legend")+labs(x = element_blank(), y = expression(paste("flux,"~mu*"mol"~"/m"^2)*"/sec"))
+
+b3 <- ggarrange(b1, b2, nrow = 2, labels = c("day", "night"), label.x = .9, label.y = 1)
+b3
+```
+
+```{r daynight_location}
+fluxdat_final %>% 
+  drop_na() %>% 
+  ggplot(aes(x=location, y=flux_umol_m2_sec, fill=treatment))+
+  geom_violin()+
+  # geom_boxplot(color = "white", width = 0.25)+
+  facet_wrap(~day_night_ID)+
+  theme_classic()
+```
+
+
+# descriptive stats: beta values
+```{r}
+# how many fluxes were calculated with a quadratic regression?
+fluxdat_final %>% 
+  filter(regr == "Q") %>% 
+  tally() # 6780 out of 10107, 2/3 of the total observations were calculated using a quadratic regression's initial slope
+
+# how many quadratic regressions had a beta-2 less than zero (aka the )
+fluxdat_final %>% 
+  filter(`X2nd_order_beta_0` < 0) %>% 
+  tally() # 1210
+
+# how many quadratic regressions were CHOSEN to calculate flux, and the beta-2 was > 0?
+fluxdat_final %>% 
+  filter(`X2nd_order_beta_0` < 0 & regr == "Q") %>% 
+  tally() # 4; this means that the VAST majority of the quadratic regressions that had a positive second beta value (aka increasing in rate over time) were describing data that were better fit by a linear regression.  (At least according to our logic for selection!)
+```
+
+
+
+Figure showing drift in ambient CO2 over the 3 months located in "rawdat_variability.Rmd" due to needing to clean a bunch of raw data.
+
+Figures(s) showing comparison analysis between CIRAS data and the fluxbot data are in the "fluxbotdat_CIRASdat.Rmd" document; lots of data exploration there, and at the end are the plots that most usefully compare the two datasets.

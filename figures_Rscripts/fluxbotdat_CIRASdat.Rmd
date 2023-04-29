@@ -1,0 +1,1279 @@
+---
+title: "fluxbotdat_CIRASdat"
+author: "Elizabeth Forbes"
+date: "9/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Comparing CIRAS data to Fluxbot data
+I have pulled the data that is closest in time to each CIRAS flux measurement from the fluxbot data stream.  I have paired those data together along with the differences in time.  Here, I am going to see how closely our data match those collected by the CIRAS, and whether any differences or similarities are driven by a) elapsed time between when fluxbot and CIRAS measurements taken, b) time of day, or c) any other environmental driver.
+
+Libraries:
+```{r libraries}
+library(stringr)
+library(lubridate)
+library(hms)
+library(tidyverse)
+library(tidyr)
+library(ggridges)
+library(ggplot2)
+# library(ggann)
+library(gridExtra)
+library(reshape2)
+library(hrbrthemes)
+library(latticeExtra)
+library(ggpubr)
+library(grid)
+library(rstatix)
+library(MESS)
+```
+
+
+Import data: 
+```{r import CIRAS}
+calval <- read.csv("ciras_fluxbot_calval_3.csv", header=TRUE)
+# clean up: deselect the X col, and the bottom row
+# calval$delta_T <- as.POSIXct(calval$delta_T, tryFormats = c("%d %H:%M:%OS"))
+# Error in as.POSIXlt.character(x, tz, ...) : 
+# character string is not in a standard unambiguous format
+
+# need to extract hours, minutes, seconds from this character string
+# look at "head" of the column:
+head(calval$delta_T)
+# [1] "0 days 00:21:21"
+
+# using str_split to extract the time only from the character string
+calval <- calval %>% 
+  mutate(delta_T = str_remove(delta_T, paste0("0 days ")))
+head(calval$delta_T) #woohoo!
+
+calval$delta_T <- as_hms(strptime(calval$delta_T, "%H:%M:%S"))
+head(calval$delta_T)
+```
+
+## Analytical comparison
+After importing data, explore the data.
+Questions to ask: 
+- is there a consistent pattern in the relationship between CIRAS and corresponding fluxbot values depending on whether CIRAS was taken before or after a fluxbot value? (E.G. potential impact of data collector being present and breathing around the open fluxbot)
+- is there a predictable relationship between dt and fidelity of CIRAS/fluxbot values?
+- etc.
+
+```{r data exploration}
+# simple ridge plot of each set of data: first, fluxbots
+p1 <- ggplot(calval, aes(x = flux_umol_m2_sec, y=BOTID, fill=TRTMNT))+
+  geom_density_ridges(alpha=.25)+
+  theme_ridges()
+  #theme(legend.position = "none")
+
+# simple ridge plot of each set of data: second, CIRAS linear fit
+p2 <- ggplot(calval, aes(x = CIRASFLX_L, y=BOTID, fill=TRTMNT))+
+  geom_density_ridges(alpha=.25)+
+  theme_ridges()
+  #theme(legend.position = "none")
+
+# simple ridge plot of each set of data: first, CIRAS quadratic fit
+p3 <- ggplot(calval, aes(x = CIRASFLX_Q, y=BOTID, fill=TRTMNT))+
+  geom_density_ridges(alpha=.25)+
+  theme_ridges()
+  #theme(legend.position = "none")
+
+# put them all together:
+grid.arrange(p1, p2, p3, ncol=1, nrow=3)
+
+# of course, the x axes are all off: the spread for the fluxbots is much higher.
+```
+
+SCATTERPLOTS:
+```{r scatter}
+# SCATTERPLOTS of the data: the next four graphs are just the fluxbot data against the CIRAS data.
+# plot fluxbot data against CIRAS linear fit data, colored by treatment:
+ggplot(data=calval, aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(alpha=.75)
+
+# plot fluxbot data against CIRAS quadratic fit data, colored by treatment:
+ggplot(data=calval, aes(x=flux_umol_m2_sec, y=CIRASFLX_Q, color=TRTMNT))+
+  geom_point(alpha=.75)
+
+# plot fluxbot data against CIRAS linear fit data, colored by feature:
+ggplot(data=calval, aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=FEAT))+
+  geom_point(alpha=.75)
+
+# plot fluxbot data against CIRAS quadratic fit data, colored by feature:
+ggplot(data=calval, aes(x=flux_umol_m2_sec, y=CIRASFLX_Q, color=FEAT))+
+  geom_point(alpha=.75)
+```
+
+Quickly compare linear and quadratic regression for CIRAS:
+```{r LQciras}
+ggplot(data=calval, aes(x=CIRASFLX_L, y=CIRASFLX_Q))+
+  geom_point(alpha=.75)+
+  theme_classic()+
+  stat_smooth(method="lm",se=F)+
+  annotate("text",x=1,y=5,
+           label=(paste0("slope==",coef(lm(calval$CIRASFLX_Q~calval$CIRASFLX_L))[2])),
+           parse=TRUE)
+
+# SLOPE = 1.05, so basically a 1:1 match between linear and quadratic calculations for the CIRAS.  I'll go ahead with linear for all my comparisons, then, because that's easy.
+```
+
+
+
+```{r}
+# let's add SIZE based on the amount of time in minutes elapsed between CIRAS and fluxbot data:
+g1 <- ggplot(data=calval, aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT,
+                              size=as.numeric(delta_T)))+
+  geom_point(alpha=.35)+
+  theme_classic()+
+  # scale_size_continuous(guide=FALSE)+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression")+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+  # theme(legend.position = "none")
+
+# just linear calc for CIRAS (they are similar in aggregate):
+annotate_figure(g1,top = text_grob("Two methods for measuring soil CO2 flux", color = "coral", face = "bold", size = 14),
+                bottom = text_grob("point size indicates minutes elapsed between measurements (max = 25)", color = "black", size = 10))
+```
+
+
+Remove OM bots from the plot:
+```{r}
+
+calval %>% 
+  filter(FEAT != "OM") %>%  # excluding OM data from final dataset
+  filter(qaqc_flags <= 11) %>% # those fluxes that "pass" QAQC
+  filter(delta_T <= 1800) %>% # less than 25 mins apart
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, 
+                        color=TRTMNT,
+                        size=((as.numeric(delta_T))/60)))+
+  geom_point(alpha=.35)+
+  theme_classic()+
+  theme(legend.position = c(0.85,0.9))+
+  labs(x=expression(paste("fluxbot flux, "~mu*"mol"~"/m"^2)*"/sec"),
+       y=expression(paste("CIRAS flux, "~mu*"mol"~"/m"^2)*"/sec"))+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")+
+  scale_color_discrete(name = element_blank(), 
+                    labels = c("all large herbivores allowed", 
+                               "no large herbivores allowed"))+
+  guides(size = "none", # remove the size-based legend
+         color = guide_legend(override.aes = list(size = 5)))
+
+```
+
+
+```{r}
+
+# look just by treatment:
+library(dplyr)
+# subset data:
+calval %>% 
+  filter(FEAT != "OM") %>% 
+  filter(qaqc_flags <= 11) %>% 
+  filter(delta_T <= 1800) %>% 
+  filter(TRTMNT == "MWC") %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, size=as.numeric(delta_T)))+
+  geom_point(alpha=.35, colour="coral1")+
+  theme_classic()+
+  facet_wrap(~BOTID)+
+  scale_size_continuous(guide=FALSE)+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression")+
+  theme(legend.position = "none")+
+  # xlim(0,10)+
+  # ylim(0,8)+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+calval %>% 
+  filter(FEAT != "OM") %>%
+  filter(qaqc_flags <= 11) %>%
+  filter(delta_T <= 1800) %>% 
+  # filter(TRTMNT == "O") %>% 
+  # filter(BOTID == "NMWC OS 1") %>% 
+  # ggplot(aes(x=as.POSIXct(timestamp_fluxbot), y=flux_umol_m2_sec, size=as.numeric(delta_T)))+
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, size=as.numeric(delta_T)))+
+  geom_point(alpha=.35, colour="cyan3")+
+  theme_classic()+
+  facet_wrap(~BOTID)+
+  scale_size_continuous(guide=FALSE)+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression")+
+  theme(legend.position = "none")+
+  # xlim(0,40)+
+  # ylim(0,8)
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+```
+distribution plot of each CIRAS and fluxbot data:
+```{r dist}
+
+#convert data from wide to long:
+df <- calval %>% 
+  filter(FEAT != "OM") %>% 
+  filter(qaqc_flags <= 11) %>% 
+  filter(delta_T <= 1800)
+
+df <- data.frame(fluxbot = df$flux_umol_m2_sec, 
+                 CIRAS = df$CIRASFLX_L,
+                 feature = df$FEAT)
+df <- melt(df, value.name = "flux")
+
+ggplot(df, aes(x=flux, fill=variable))+
+  geom_density(alpha=0.5)+
+  theme_classic()
+
+
+# filter out the data from OM, with high QAQC scores, and any observation pairs that occurred more than 25mins apart
+
+# add column indicating category based on time
+calval$delta_mins <- as.numeric(as_hms(calval$delta_T))/60
+calval$ELAPSED <- ifelse(calval$delta_mins >=0 & calval$delta_mins <=5, "within_5",
+                         ifelse(calval$delta_mins >5 & 
+                                  calval$delta_mins <=10, "within_10",
+                                ifelse(calval$delta_mins>10 & 
+                                         calval$delta_mins <=25,
+                                       "within_25",
+                                       ifelse(calval$delta_mins>25, 
+                                              "over_25","something else"))))
+
+calval_clean <- calval %>% 
+  filter(FEAT != "OM") %>% 
+  filter(qaqc_flags <= 11) %>% 
+  filter(delta_mins <= 25)
+  
+```
+
+
+
+
+## Analytical comparison
+what's different? what's the same? why?
+
+Okay, let's look at the data partitioned by elapsed time between CIRAS and fluxbot measurement:
+```{r data exploration_3}
+
+calval_clean %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point()+
+  theme_classic()+
+  facet_wrap(~ELAPSED, ncol=2)+
+  scale_size_continuous(guide=FALSE)+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression",
+       title="binned by elapsed time between CIRAS and bot")+
+  xlim(0,40)+
+  ylim(0,8)+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+```
+
+
+```{r}
+g1 <- calval_clean %>% 
+  filter(ELAPSED == "within_25") %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression",
+       title="data taken within 25mins")+
+  xlim(0,40)+
+  ylim(0,8)+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+g2 <- calval_clean %>% 
+  filter(ELAPSED == "within_10") %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression",
+       title="data taken within 10mins")+
+  xlim(0,40)+
+  ylim(0,8)+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+g3 <- calval_clean %>% 
+  filter(ELAPSED == "within_5") %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression",
+       title="data taken within 5mins")+
+  xlim(0,40)+
+  ylim(0,8)+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+ggarrange(g1, g2, g3, ncol=3, nrow=1, common.legend=TRUE, legend = "bottom")
+
+# count number of data points for each category:
+length(which(calval$ELAPSED=="within_25"))
+# 82
+length(which(calval$ELAPSED=="within_10"))
+# 30
+length(which(calval$ELAPSED=="within_5"))
+# 35
+length(which(calval$ELAPSED=="over_25"))
+# 65
+
+```
+
+So how 'accurate' are the bots against specific times of day?
+```{r data exploration_4}
+# added an 'hour' column to original CSV for making a heat map of these data by hour/time of day: how accurate/close are our measurements according to what time of day it is?
+
+# #select all data for which the gap between measurements was less than 25 mins: 144 total observations
+# calval2 <- calval %>% 
+#   filter(ELAPSED!="over_25") %>% 
+#   filter(qaqc_flags <= 11)
+
+# levelplot: allows you to map three different continuous variables.
+# panel.levelplot.points gives you a scatterplot colored by HOUR
+# # layer_(panel.2dsmoother()) gives you a general distribution of HOUR overlaid on the scatterplot
+# levelplot(hour~flux_umol_m2_sec*CIRASFLX_L, calval2,
+#           panel=panel.levelplot.points, cex=1)+
+#   layer_(panel.2dsmoother(...,n=200))
+# 
+# # without the 'heatmap-like' layer:
+# levelplot(hour~flux_umol_m2_sec*CIRASFLX_L, calval2,
+#           panel=panel.levelplot.points, cex=1)
+```
+
+```{r}
+# just a classic scatterplot but faceted by hour of day:
+ggplot(calval_clean, aes(flux_umol_m2_sec, CIRASFLX_L, colour=TRTMNT))+
+  geom_point() + 
+  facet_grid(~hour)+
+  theme_classic()+
+  geom_abline(intercept=0, slope=1, linetype=2, colour="red")
+
+# want to look at this a bit better: 9, 10, 11, 12, 13, 15, 16
+b1 <- calval_clean %>% 
+  filter(hour == 9) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(title="9am")+
+  xlim(0,10)+
+  ylim(0,8)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+b2 <- calval_clean %>% 
+  filter(hour == 10) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(title="10am")+
+  xlim(0,10)+
+  ylim(0,8)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+b3 <- calval_clean %>% 
+  filter(hour == 11) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(title="11am")+
+  xlim(0,10)+
+  ylim(0,8)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+b4 <- calval_clean %>% 
+  filter(hour == 12) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(title="12pm")+
+  xlim(0,10)+
+  ylim(0,8)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+b5 <- calval_clean %>% 
+  filter(hour == 13) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(title="1pm")+
+  xlim(0,10)+
+  ylim(0,8)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+b6 <- calval_clean %>% 
+  filter(hour == 15) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(title="3pm")+
+  xlim(0,10)+
+  ylim(0,8)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+b7 <- calval_clean %>% 
+  filter(hour == 16) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L, color=TRTMNT))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  labs(title="4pm")+
+  xlim(0,10)+
+  ylim(0,8)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")
+
+b8 <- ggarrange(b1, b2, b3, b4, b5, b6, b7, ncol=3, nrow=3, legend = "none")
+
+annotate_figure(b8, 
+                # top=text_grob("Visualized by hour of day", color="red", face="bold", size="14"),
+                bottom = text_grob("Fluxbot calc, umol/m2/sec", x=0.25, color="red"),
+                left = text_grob("CIRAS calc (linear), umol/m2/sec", color="red", rot = 90)
+)
+
+
+```
+
+What is the correlation coefficient between fluxbot and CIRAS data, excluding those that took place more than 25 mins apart (68 excluded 144 total)?
+```{r correlationcoeff}
+# calculate correlation coefficient between the two data streams:
+# cor(calval2$flux_umol_m2_sec, calval2$CIRASFLX_L)
+cor(calval$flux_umol_m2_sec, calval$CIRASFLX_L)
+# [1] 0.1718452
+
+# correlation coefficient of cleaned dataset:
+cor(calval_clean$flux_umol_m2_sec, calval_clean$CIRASFLX_L)
+# [1] -0.2918284
+
+# Plot the relationship
+ggplot(data=calval_clean, aes(x=flux_umol_m2_sec, 
+                         y=CIRASFLX_L, 
+                         color=TRTMNT,
+                         size=delta_mins))+
+  geom_point(alpha=.35)+
+  # geom_smooth(method = 'lm', se=FALSE)+
+  stat_cor(method = "pearson", label.x = 8, label.y = 3.5)+
+  theme_classic()+
+  facet_wrap(~FEAT)+
+  scale_size_continuous(guide="none")+
+  labs(x="fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression")+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")+
+  stat_ellipse()
+  # xlim(0,10)+
+  # ylim(0,8)
+
+# so, it is a negative relationship, but I do think that it's more of a cluster around the same values than anything else.  
+```
+Plot density distribution of "cleaned" data:
+```{r}
+#convert data from wide to long:
+df <- calval_clean %>% 
+  filter(FEAT != "OM") %>% 
+  filter(qaqc_flags <= 11) %>% 
+  filter(delta_mins <= 25)
+
+df <- data.frame(fluxbot = df$flux_umol_m2_sec, 
+                 CIRAS = df$CIRASFLX_L,
+                 feature = df$FEAT)
+df <- melt(df, value.name = "flux")
+
+c1 <- ggplot(df, aes(x=flux, fill=variable))+
+  geom_density(alpha=0.75)+
+  theme_classic()+
+  theme(legend.position = c(0.9,0.9))+
+  labs(fill = "method", x = element_blank())+
+  scale_fill_manual(values=c("fluxbot"="lightblue", "CIRAS"="yellow"))+
+  xlim(0,40)
+c1
+```
+ 
+Plot density distribution of ALL the fluxbot data compared to ALL the CIRAS data:
+```{r}
+# create df's of just the CIRAS data (all), and the final cleaned-up fluxbot data (including nighttime hours, etc.)
+df2 <- as.data.frame(fluxdat_final$flux_umol_m2_sec)
+df2$method <- "fluxbot"
+df3 <- as.data.frame(calval$CIRASFLX_L)
+df3$method <- "CIRAS"
+# wide to long:
+df2 <- melt(df2, value.name = "flux")
+df3 <- melt(df3, value.name = "flux")
+# bind the two:
+df4 <- rbind(df3, df2)
+# reorder so the plot matches the previous one in terms of layered densities:
+df4$method = with(df4, reorder(method, flux, median, decreasing=TRUE))
+
+# add vertical lines
+# medianflux_df4 <- df4 %>% 
+#   group_by(method) %>% 
+#   summarize(median=median(flux))
+
+c2 <- ggplot(df4, aes(x=flux, fill=method))+
+  geom_density(alpha=0.65)+
+  # geom_vline(data = medianflux_df4, aes(xintercept = median, 
+                                       # color = method), size=1)+
+  theme_classic()+
+  theme(legend.position = c(0.9,0.9))+
+  labs(fill = "method")+
+  xlab(expression(paste("flux, "~mu*"mol"~"/m"^2)*"/sec"))+
+  scale_fill_manual(values=c("fluxbot"="blue", "CIRAS"="goldenrod"))+
+  xlim(0,40)
+c2
+```
+
+put them together:
+```{r}
+c3 <- ggarrange(c1, c2, nrow = 2, labels = c("A", "B"))
+c3
+```
+
+
+Just check and see if the OM data line up with their pairs any better than the others do:
+```{r OMdata}
+calval %>% 
+  filter(FEAT == "OM") %>% 
+  # filter(treatment == "MWC") %>% 
+  filter(qaqc_flags <= 11) %>%
+  ggplot(aes(x= flux_umol_m2_sec, y=CIRASFLX_L,
+             color=TRTMNT))+
+  geom_point(alpha=0.35)+
+  stat_cor(method = "pearson", label.x = 8, label.y = 3.5)+
+  theme_classic()+
+  scale_size_continuous(guide="none")+
+  labs(x="termite mound fluxbot soil flux",
+       y="CIRAS soil flux, LINEAR regression")+
+  geom_abline(intercept = 0, slope = 1, linetype=2, colour="red")+
+  stat_ellipse()
+
+```
+
+
+Ok: we know there is some weirdness going with comparing CIRAS to fluxbot data. Can we detect if there are any "hot bots", aka any fluxbots that systematically interpret gains in CO2 at a different scale than is true?
+1) find max and min ambient CO2 for each bot, for each day
+2) calculate ratio of min/max for each bot, for each day = amplitude of ambient
+3) divide a single fluxbot's average ambient amplitude by ALL the bots' average ambient amplitude
+  - in theory, if the fluxbot is not "hot", that ratio should be ~1
+  - if it's not ~1, it can be running "cold" or "hot"
+4) if there are hot bots (or cold bots), we can determine a correction factor by which to recalculate the fluxes it observed
+5) if there are not hot/cold bots, the differences in flux we observed with our fluxbots (versus the CIRAS) are likely real
+
+outstanding Q's: is it worth calculating this ratio for each day, for each bot? (e.g. can a bot 'drift' into hot bot territory?)
+
+alt method: calculate the z-score for each fluxbot
+
+Oct 4, 2022: updated needs for analysis
+- using the calval dataset, determine slope of line for regression of CIRAS fluxes and corresponding fluxbot fluxes
+- determine relative amplitude (like above in first "hot bot" chunk) per fluxbot
+- plot relative amplitude on the x-axis and slopes on y-axis
+- what is the correlation?
+
+- issues: we can't actually calculate relative amplitude for the bots because we don't have hourly data for each day; just the one data point
+  - potential solution: use the full dataset from before Aug. 23rd, filtering for hours 9am-4pm, and calculate relative        amplitude with that dataset
+- need to get dTime for the CIRAS raw data to calculate slope/regression for each
+  - or just use the raw data? use the raw data
+```{r avg_bot_amplitude}
+
+# for each bot, calculate its overall "hot bot" amplitude score against the rest
+
+calval_amp <- calval_clean %>% 
+  mutate(avg_CO2 = mean(ambient_CO2_ppm)) %>% 
+  mutate(sd_CO2 = sd(ambient_CO2_ppm)) %>% 
+  group_by(BOTID) %>% 
+  summarize(avg_CO2_BOTID = mean(na.omit(ambient_CO2_ppm)),
+            avg_CO2 = mean(avg_CO2),
+            sd_CO2 = mean(sd_CO2)) %>% 
+  mutate(bot_amplitude = (avg_CO2_BOTID - avg_CO2)/sd_CO2)
+
+# the issue here is that with the "cleaned" dataset (e.g. QAQC <= 11, no OMs, and the dT < 25) we only have four NO OS2 datapoints and they're all...zero??  try expanding to dT < 60:
+calval_amp2 <- calval %>% 
+  filter(FEAT != "OM") %>% 
+  filter(qaqc_flags <= 11) %>% 
+  filter(delta_mins <= 60) %>% 
+  mutate(avg_CO2 = mean(ambient_CO2_ppm)) %>% 
+  mutate(sd_CO2 = sd(ambient_CO2_ppm)) %>% 
+  group_by(BOTID) %>% 
+  summarize(avg_CO2_BOTID = mean(na.omit(ambient_CO2_ppm)),
+            avg_CO2 = mean(avg_CO2),
+            sd_CO2 = mean(sd_CO2)) %>% 
+  mutate(bot_amplitude = (avg_CO2_BOTID - avg_CO2)/sd_CO2)
+# ok!  still zero.  Every other bot has a similar average ambient value.  IDK. Average ambient over the entire fluxdat_final dataset is 438 for that bot.  I'm very confused.
+
+# in the larger dataset (cleaned but for those dats prior to Aug 23rd recalibration), there are a lot of zeros and anecdotally i'd say the vast majority are for dates prior to Aug. 23rd.  Of THOSE, the vaaaast majority are NO OS 2.  Damn!  that thing was OFF pre-recalibration.  Not sure what this means for that bot in terms of how we could correct for it.  Would the CIRAS portion of its dataset be unreflective of the rest of the dataset?
+
+```
+
+######################
+# After discussion with Kelly, have reoriented a bit. Below is updated hotbot analysis:
+######################
+
+First: calculate the relative range of each fluxbot, normalized using the average range of all fluxbots
+```{r preAug23_range}
+
+# pull data from dataset that includes fluxes from before Aug. 23 (aka the period of time during which I was taking CIRAS measurements)
+fluxdat_preAug23 <- fluxdata_20s_2019_qaqc %>% 
+  filter(month == 8 & day < 23 & location != "Termite Soil" & hour %in% (9:16))
+# 1169 observations 
+
+# trying again with different pipe style bc got some conflicting results depending on filter usage before:
+fluxdat_preAug23_2 <- fluxdata_20s_2019_qaqc %>% 
+  filter(month==8) %>% 
+  filter(day %in% c(1:22)) %>% 
+  filter(location != "Termite Soil") %>% 
+  filter(hour %in% c(9:16))
+# 1169 observations; ok finally got the filtering right. If all bots had taken a high-quality measurement (aka didn't fail QAQC) each hour (24) each day of this deployment (19 days), we'd have 5472 observations. We have about 4.5x fewer than that, so 
+
+# calculate range aka max-min ambient CO2 per bot, per day
+Aug_dailyrange_bybot <- fluxdat_preAug23 %>% 
+  group_by(day, BOTID) %>% 
+  summarize(ambientdailyrange_bybot = max(ambient_CO2_ppm) - min(ambient_CO2_ppm)) 
+# 179 rows, aka about 15 daily ranges per bot (assuming all bots operated equally well in this period)
+
+normalizedrange_allbots <- Aug_dailyrange_bybot %>% 
+  ungroup() %>% 
+  mutate(avgrange_all = mean(ambientdailyrange_bybot)) %>%  # calculate mean range across all days, across all bots
+  group_by(BOTID) %>% 
+  summarize(avgrange_bot = mean(ambientdailyrange_bybot), avgrange_all = mean(avgrange_all)) %>%  # calculate mean range for each bot, across all days, while keeing the overall mean as its own column
+  ungroup() %>% 
+  mutate(relative_range_bot = avgrange_bot/avgrange_all) # normalize each bot's mean range by all bots' mean range
+```
+
+Also calculate z-score of the bots' ranges just for kicks:
+```{r zscore}
+# also caculate z-score for the sake of it
+zscore_allbots <- Aug_dailyrange_bybot %>% 
+  ungroup() %>% 
+  mutate(avgrange_all = mean(ambientdailyrange_bybot)) %>%  # calculate mean range across all days, across all bots
+  mutate(sd_all = sd(ambientdailyrange_bybot)) %>% 
+  group_by(BOTID) %>% 
+  summarize(avgrange_bot = mean(ambientdailyrange_bybot), # calculate mean range across days for each bot
+            avgrange_all = mean(avgrange_all), #average the overall mean to keep it in the summary table
+            sd_all = mean(sd_all)) %>% # same as above
+  mutate(range_zscore_bot = (avgrange_bot - avgrange_all)/sd_all) # calculate z-score (obs - mean(obs) / sd(obs))
+
+```
+
+
+Have calculated the normalized ranges for the fluxbots in the CIRAS:fluxbot dataset, using the entire dataset from 9am-4pm each day prior to Aug. 23rd (not just the few datapoints collected at the same time as the CIRAS obs; we are using these normalized ranges to compare against the existing paired dataset).  Ready for next step: getting the slopes of the regressions between paired CIRAS and fluxbot observations for each fluxbot
+
+```{r slopes}
+# visualize regressions per paired bot/ciras points:
+calval_clean %>% 
+  # filter(hour == 16) %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  # labs(title="4pm")+
+  xlim(0,10)+
+  ylim(0,8)+
+  facet_wrap(~BOTID)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_smooth(method = "lm",
+              formula = y ~ x)
+
+#calculate linear models for each bot/ciras pair, and pull/store the slope from each:
+slopes_pairs <- calval_clean %>% 
+  # filter(TIME != 10) %>% 
+  group_by(BOTID) %>%
+  summarise(slope = lm(flux_umol_m2_sec ~ CIRASFLX_L)$coefficients[2])
+```
+
+
+We have a df with the slopes of the regressions between each fluxbot/CIRAS pair over the pre-Aug. 23 period, and we have the a df with the relative range of ambient co2 per fluxbot.  plot together:
+```{r compare}
+# change botid names in the normalized range df:
+
+# define replacement string
+rep_str = c('MWC   Open Soil   1'='NMWC OS 1',
+            'MWC   Open Soil   2'='NMWC OS 2',
+            'MWC   Open Soil   3'='NMWC OS 3',
+            'MWC   Under Tree   1'='NMWC UT 1',
+            'MWC   Under Tree   2'='NMWC UT 2',
+            'MWC   Under Tree   3'='NMWC UT 3',
+            'O   Open Soil   1'='NO OS 1',
+            'O   Open Soil   2'='NO OS 2',
+            'O   Open Soil   3'='NO OS 3',
+            'O   Under Tree   1'='NO UT 1',
+            'O   Under Tree   2'='NO UT 2',
+            'O   Under Tree   3'='NO UT 3')
+# library(stringr)
+normalizedrange_allbots$BOTID <- str_replace_all(normalizedrange_allbots$BOTID, rep_str)
+zscore_allbots$BOTID <- str_replace_all(zscore_allbots$BOTID, rep_str)
+
+comparison <- normalizedrange_allbots %>% 
+  merge(slopes_pairs, by = "BOTID")
+comparison_z <- zscore_allbots %>% 
+  merge(slopes_pairs, by = "BOTID")
+```
+
+plot:
+```{r compare_plot}
+# visualize relationship for each fluxbot:
+# y = slopes
+# x = relative ranges (or z-scores; try both)
+comparison_z %>% 
+  ggplot(aes(x=range_zscore_bot, y=slope, label = BOTID))+
+  geom_point(size=3, alpha=.5, color = "red")+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "blue")
+
+# test data normality
+ggpubr::ggqqplot(comparison_z$range_zscore_bot) #normal
+ggpubr::ggqqplot(comparison_z$slope) # two outliers
+shapiro.test(comparison_z$slope) # p-value = 0.2527, normal
+
+# use non-parametric (spearman or Kendall)
+cor.test(comparison_z$range_zscore_bot, 
+         comparison_z$slope,
+         method=c("kendall"))
+# tau = -0.3030303
+# p-value = 0.1969 (not significantly correlated)
+```
+
+Try removing the "problem" bot from the dataset just to see if things get any more sensical:
+```{r}
+# try calculating the correlation when removing NO OS 2, the left-fielder that is always screwing things up:
+library(broom)
+comparison_z %>% 
+  filter(BOTID != "NO OS 2") %>% 
+  do(tidy(cor.test(.$range_zscore_bot, .$slope,
+                   method = c("kendall"))))
+# estimate = 0.090909
+# p-value: 0.7612 (wow ok so the correlation is legit the opposite when NO OS 2 is excluded...but still insignificant)
+
+# plot:
+comparison_z %>% 
+  filter(BOTID != "NO OS 2") %>% 
+  ggplot(aes(x=range_zscore_bot, y=slope, label = BOTID))+
+  geom_point(size=3, alpha=.5, color = "red")+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "blue")+
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")
+```
+
+#################################
+October 18, 2022
+#################################
+
+# new analyses
+After meeting with Kelly today, we're going to do a few things:
+1) SLOPES
+- run the regressions again with the response variables flipped; what multiplier (over 1 in many cases) do I need to multiply a given CIRAS datapoint by to get the matching fluxbot data?
+  - do fluxbots with big ranges == or != those with big multipliers?
+
+2) ABSOLUTE VS. RELATIVE RANGE
+- plot the slopes by relative range, also ABSOLUTE range. What is the average diurnal range of CO2 for the whole period, all hours, before Aug 23?
+- what PPM does the absolute range represent?  plotting with absolute range on the x-axis will help us visualize this, though we'd correct with relative range.
+
+3) DATASET FOR RANGE CALCS
+- we're using the WHOLE dataset pre-Aug. 23rd, rather than just those points between 9am and 4pm. This is because the amplitude/range analysis is representative of a characteristic of a single fluxbot. When we plot it against the CIRAS/fluxbot data, it's comparing a characteristic that is independent of the paired data. So re-do the range analysis/amplitude analysis with the entire pre-Aug 23rd dataset.
+
+4) calculate alts to slope for comparison against range
+- absolute mean error between CIRAS and bot
+- average differences between CIRAS and bot
+- average ratio between CIRAS and bot (aka if this were to be perfectly matched, a bot with a relative range of 1.2 might also have a ratio of 1.2 if the *only* thing causing differences between the two methods was bot-based)
+- are the bots with the biggest ranges the same ones with the biggest differences between them and their CIRAS pair? If not, what else could be going on?
+
+We're going to do it in this order:
+1) re-calculate range 
+2) re-calculate slopes
+3) also calculate the new, alternative, non-slope comparisons:
+  - absolute mean error
+  - average differences between CIRAS and fluxbot
+  - average ratio between between CIRAS and fluxbot
+4) plot absolute *and* relative range to get a sense of how big the differences are
+5) plot slope (y) against relative range (x) with the new slopes (which should include at least some that are greater than 1)
+6) plot the alts against relative range; which one is best at telling us the relationship between the CIRAS and the fluxbots?
+
+```{r re-calc range}
+fluxdat_preAug23_all <- fluxdata_20s_2019_qaqc %>% 
+  filter(month==8) %>% 
+  filter(day %in% c(1:22)) %>% 
+  filter(location != "Termite Soil")
+# 3435 observations
+
+# calculate daily range, aka max-min ambient CO2 per bot, per day
+dailyrange_bybot <- fluxdat_preAug23_all %>% 
+  group_by(day, BOTID) %>% 
+  summarize(dailyrange_bybot = max(ambient_CO2_ppm) - min(ambient_CO2_ppm)) 
+# 195 rows
+
+# calculate normalized range for each bot:
+normalizedrange_allbots <- dailyrange_bybot %>% 
+  ungroup() %>% 
+  mutate(avgrange_all = mean(dailyrange_bybot)) %>%  # mean across days, bots
+  group_by(BOTID) %>% 
+  summarize(avgrange_bot = mean(dailyrange_bybot), avgrange_all = mean(avgrange_all)) %>%  # mean range for each bot, all days, keeping overall mean
+  ungroup() %>% 
+  mutate(relative_range_bot = avgrange_bot/avgrange_all) # normalize each bot's mean range by all bots' mean range
+```
+
+# check quality of the daily range calculation: how many observations were there per day for some of them?
+```{r check-range-calc}
+# quick descriptive statistic: how many mins/maxes were calculated for each bot?
+num_obs_perday <- fluxdat_preAug23_all %>% 
+  group_by(BOTID, day) %>%
+  summarise(number_of_obs = n_distinct(ambient_CO2_ppm)) %>% 
+  ungroup() %>% 
+  count(number_of_obs < 10)
+# there are some days with few observations (aka hours). remove these from range calculation because they're not really observing a diurnal range. If a bot on a day has less than 10hrs of data, remove it from the dataset. (34 daily ranges total, out of 195)
+
+# calculate daily range, removing those daily ranges for which the number of hours used to calculate it is less than 10
+dailyrange_bybot <- fluxdat_preAug23_all %>% 
+  group_by(day, BOTID) %>% 
+  summarize(n_of_obs = n_distinct(ambient_CO2_ppm),
+            max_daily_amb = max(ambient_CO2_ppm),
+            min_daily_amb = min(ambient_CO2_ppm)) %>% 
+  ungroup() %>% 
+  filter(n_of_obs >=10) %>% 
+  group_by(day, BOTID) %>% 
+  summarize(dailyrange_bybot = max_daily_amb - min_daily_amb) 
+# 161 rows (195 original, minus the daily ranges that were calculated with < 10 hours of observation)
+
+# re-calculate normalized range for each bot:
+normalizedrange_allbots <- dailyrange_bybot %>% 
+  ungroup() %>% 
+  mutate(avgrange_all = mean(dailyrange_bybot)) %>%  # mean across days, bots
+  group_by(BOTID) %>% 
+  summarize(avgrange_bot = mean(dailyrange_bybot), 
+            avgrange_all = mean(avgrange_all)) %>%  
+  # mean range for each bot, all days, keeping overall mean
+  ungroup() %>% 
+  mutate(relative_range_bot = avgrange_bot/avgrange_all) # normalize each bot's mean range by all bots' mean range
+```
+Weirdly, I'm noticing a bit of a pattern by treatment and by structural element (trees or open soil). Will need to keep that in mind in analysis.
+
+#Slopes
+Next up: recalculate slopes for comparison against the daily range data
+```{r recalc-slopes}
+# visualize regressions per paired bot/ciras points:
+calval_clean %>% 
+  ggplot(aes(x=flux_umol_m2_sec, y=CIRASFLX_L))+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  xlim(0,10)+
+  ylim(0,8)+
+  facet_wrap(~BOTID)+
+  theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())+
+  geom_smooth(method = "lm",
+              formula = y ~ x)
+
+#calculate linear models for each bot/ciras pair, and pull/store the slope from each:
+slopes_pairs <- calval_clean %>% 
+  # filter(TIME != 10) %>% 
+  group_by(BOTID) %>%
+  summarise(coefs = coef(lm(flux_umol_m2_sec ~ CIRASFLX_L))) %>% 
+  # y = Ax + b; in this case, i am interested in "A" as it pertains to CIRAS, because i want to know what it would need to be multiplied against to get the fluxbot value
+  summarize(slope = coefs[2]) # select coefficient #2, or the slope ([1] is the intercept)
+
+# combine dfs:
+# library(stringr)
+normalizedrange_allbots$BOTID <- str_replace_all(normalizedrange_allbots$BOTID, rep_str)
+
+comp <- normalizedrange_allbots %>% 
+  merge(slopes_pairs, by = "BOTID")
+```
+
+# plot: relative daily range of fluxbots against relationship between CIRAS and fluxbots (slope)
+plot the slopes between paired CIRAS and fluxbot data (y) against relative daily range (x).
+```{r plot_slopevrange}
+comp %>% 
+  ggplot(aes(x=relative_range_bot, y=slope, label = BOTID))+
+  geom_point(size=3, alpha=.5, color = "red")+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "blue")+
+  # geom_smooth(method = "lm")
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed")+
+  ylab("slope of regression between fluxbot and CIRAS fluxes")+
+  xlab("relative range of fluxbot")
+
+
+# test data normality
+ggpubr::ggqqplot(comp$relative_range_bot) #normal
+ggpubr::ggqqplot(comp$slope) # normal
+
+# use parametric correlation test (Pearson method)
+cor.test(comparison_z$range_zscore_bot, 
+         comparison_z$slope,
+         method=c("pearson"))
+# correlation = -0.477
+# p-value = 0.1166 (not significantly correlated)
+```
+# absolute range (aka not corrected by the average range of the entire bot dataset)
+Plot the absolute average range for each fluxbot against slope:
+```{r plot_absolute_range}
+comp %>% 
+  ggplot(aes(x=avgrange_bot, y=slope, label = BOTID))+
+  geom_point(size=3, alpha=.5, color = "blue")+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "blue")+
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed")+
+  ylab("slope of regression between fluxbot and CIRAS fluxes")+
+  xlab("average range of fluxbot")
+
+```
+# plot: relative to actual daily range
+```{r abs_vs_relative_range}
+comp %>% 
+  ggplot(aes(x=avgrange_bot, y=relative_range_bot, label = BOTID))+
+  geom_point(size=3, alpha=.5, color = "blue")+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "blue")+
+  ylab("relative range of fluxbot")+
+  xlab("average range of fluxbot")
+# extremely close relationship (linear) between the adjusted and the unadjusted ranges, which is good.
+```
+
+#######
+# Alts to slope for plotting
+We want to calculate a few other things to use for plotting against relative range, because we're not sure slope is the right visualization tool.  so we're going to try a few things.
+```{r alts_yaxis}
+
+# - absolute mean error between CIRAS and bot
+mean_abs_error <- calval_clean %>% 
+  # mutate(flux_minus_ciras = flux_umol_m2_sec - CIRASFLX_L)
+  group_by(BOTID) %>% 
+  summarize(mae = (1/(length(event_number)))*sum(abs(flux_umol_m2_sec - CIRASFLX_L))) 
+# MAE = (1/n)*[sum of(|experimental - true|)]
+
+comp <- comp %>% 
+  merge(mean_abs_error, by = "BOTID")
+
+############ NOTE TO SELF, ABANDONING THIS FOR NOW BC I NEED TO FIGURE OUT THE MODEL
+
+# - average differences between CIRAS and bot
+mean_diff <- calval_clean %>% 
+  group_by(BOTID) %>% 
+  summarize(mean_diff = mean(flux_umol_m2_sec - CIRASFLX_L))
+
+comp <- comp %>% 
+  merge(mean_diff, by = "BOTID")
+
+############ 
+
+# - average ratio between CIRAS and bot 
+mean_ratio <- calval_clean %>% 
+  group_by(BOTID) %>% 
+  summarize(mean_ratio = mean(flux_umol_m2_sec/CIRASFLX_L))
+
+comp <- comp %>% 
+  merge(mean_ratio, by = "BOTID")
+
+```
+
+Plot these alternates:
+```{r plot_mae}
+comp %>% 
+  ggplot(aes(x=relative_range_bot, y=mae, label = BOTID))+
+  geom_point(size=3, alpha=.5, color = "pink")+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "red")+
+  # geom_smooth(method = "lm")
+  # geom_hline(yintercept = 0, color = "blue", linetype = "dashed")+
+  ylab("mean absolute error")+
+  xlab("relative range of fluxbot")
+```
+
+```{r plot_meandiff}
+
+# add treatment, location columns:
+comp <- comp %>% 
+  separate(col = BOTID, into=c("treatment", "location"), sep = " ", remove = FALSE)
+
+comp %>% 
+  ggplot(aes(x=relative_range_bot, y=mean_diff, label = BOTID, color=treatment))+
+  # geom_point(size=3, alpha=.5, color = "blue")+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "red")+
+  # geom_smooth(method = "lm")
+  geom_hline(yintercept = 0, color = "blue", linetype = "dashed")+
+  ylab("mean difference between fluxbot and CIRAS fluxes")+
+  xlab("relative range of fluxbot")+
+  theme(legend.position = "none")
+
+```
+Now mean ratio of fluxbot to CIRAS values (all positive values, might still be interesting):
+```{r plot_meanratio}
+
+comp %>% 
+  ggplot(aes(x=relative_range_bot, y=mean_ratio, label = BOTID, color = treatment))+
+  # geom_point(size=3, alpha=.5, color = "darkgreen")+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "red")+
+  # geom_smooth(method = "lm")
+  # geom_hline(yintercept = 0, color = "darkgreen", linetype = "dashed")+
+  geom_hline(yintercept = 1, color = "red", linetype = "dashed")+
+  ylab("average ratio: fluxbot to CIRAS")+
+  xlab("relative range of fluxbot")+
+  theme(legend.position = "none")
+
+```
+Now again but with absolute range:
+```{r plot_meanratio}
+
+comp %>% 
+  ggplot(aes(x=avgrange_bot, y=mean_ratio, label = BOTID, color=treatment))+
+  # geom_point(size=3, alpha=.5, color = "purple")+
+  geom_point(size=3, alpha=.5)+
+  theme_classic()+
+  geom_text(vjust = 2, nudge_y = 0.025, size = 2, color = "red")+
+  # geom_smooth(method = "lm")
+  # geom_hline(yintercept = 0, color = "darkgreen", linetype = "dashed")+
+  geom_hline(yintercept = 1, color = "red", linetype = "dashed")+
+  ylab("average ratio: fluxbot to CIRAS")+
+  xlab("average daily range (max-min) of fluxbot")+
+  theme(legend.position = "none")
+
+```
+
+Mean daily range of temp for the fluxbots, because I'm seeing some patterns in MWC vs. O:
+```{r}
+
+# calculate daily range in temp, to compare the two treatments:
+daily_T_range_bybot <- fluxdat_preAug23_all %>% 
+  group_by(day, BOTID) %>% 
+  summarize(n_of_obs = n_distinct(avg_temp_degC),
+            max_daily_T = max(avg_temp_degC),
+            min_daily_T = min(avg_temp_degC)) %>% 
+  ungroup() %>% 
+  # filter(n_of_obs >=10) %>% 
+  group_by(day, BOTID) %>% 
+  summarize(dailyrange_bybot = max_daily_T - min_daily_T) 
+
+# calculate normalized range of daily temperature for each bot:
+normalized_T_range_allbots <- daily_T_range_bybot %>% 
+  ungroup() %>% 
+  mutate(avgrange_all = mean(dailyrange_bybot)) %>%  # mean across days, bots
+  group_by(BOTID) %>% 
+  summarize(avgrange_bot = mean(dailyrange_bybot), 
+            avgrange_all = mean(avgrange_all)) %>%  
+  # mean range for each bot, all days, keeping overall mean
+  ungroup() %>% 
+  mutate(relative_range_bot = avgrange_bot/avgrange_all) # normalize each bot's mean range by all bots' mean range
+
+# plot by treatment:
+normalized_T_range_allbots %>% 
+  mutate(trtmnt = str_split(BOTID, " ", simplify = TRUE)[ , 1]) %>% 
+  ggplot(aes(x=trtmnt, y=relative_range_bot, fill = trtmnt))+
+  geom_boxplot()+
+  theme_bw()+
+  ylab("average relative daily range in temp (C)")+xlab("herbivore treatment")+
+  scale_fill_discrete(name = "Treatment", labels = c("wildlife + cattle", "no herbivores"))
+
+```
+Mean daily range of humidity for the fluxbots, because same:
+```{r}
+
+# calculate daily range in H, to compare the two treatments:
+daily_H_range_bybot <- fluxdat_preAug23_all %>% 
+  group_by(day, BOTID) %>% 
+  summarize(n_of_obs = n_distinct(avg_rel_humidity),
+            max_daily_H = max(avg_rel_humidity),
+            min_daily_H = min(avg_rel_humidity)) %>% 
+  ungroup() %>% 
+  # filter(n_of_obs >=10) %>% 
+  group_by(day, BOTID) %>% 
+  summarize(dailyrange_bybot = max_daily_H - min_daily_H) 
+
+# calculate normalized range of daily temperature for each bot:
+normalized_H_range_allbots <- daily_H_range_bybot %>% 
+  ungroup() %>% 
+  mutate(avgrange_all = mean(dailyrange_bybot)) %>%  # mean across days, bots
+  group_by(BOTID) %>% 
+  summarize(avgrange_bot = mean(dailyrange_bybot), 
+            avgrange_all = mean(avgrange_all)) %>%  
+  # mean range for each bot, all days, keeping overall mean
+  ungroup() %>% 
+  mutate(relative_range_bot = avgrange_bot/avgrange_all) # normalize each bot's mean range by all bots' mean range
+
+# plot by treatment:
+normalized_H_range_allbots %>% 
+  mutate(trtmnt = str_split(BOTID, " ", simplify = TRUE)[ , 1]) %>% 
+  ggplot(aes(x=trtmnt, y=relative_range_bot, fill = trtmnt))+
+  geom_boxplot()+
+  theme_bw()+
+  ylab("average relative daily range in humidity (%)")+xlab("herbivore treatment")+
+  scale_fill_discrete(name = "Treatment", labels = c("wildlife + cattle", "no herbivores"))
+```
+# descriptive stats:
+Just some brief descriptive statistics of the calval data.
+```{r descriptive_stats}
+
+# mean of flux for the paired data, CIRAS:
+calval_clean %>% 
+  summarize(mean_c = mean(CIRASFLX_L)) # 1.583605 umol/m2/sec
+# paired fluxbots:
+calval_clean %>% 
+  summarise(mean_f = mean(flux_umol_m2_sec)) # 3.496733 umol/m2/sec
+
+# median of flux for the paired data, CIRAS:
+calval_clean %>% 
+  summarize(med_c = median(CIRASFLX_L)) # 1.38 umol/m2/sec
+# paired fluxbots:
+calval_clean %>% 
+  summarise(med_f = median(flux_umol_m2_sec)) # 2.557 umol/m2/sec
+
+# coefficient of variation for both: how 'spread' are the datasets of each?  how different is the variation?
+calval_clean %>% 
+  summarise(coef_c = (sd(CIRASFLX_L))/mean(CIRASFLX_L)) # 0.4681408
+calval_clean %>% 
+  summarise(coef_f = (sd(flux_umol_m2_sec))/mean(flux_umol_m2_sec)) #	0.9763504	 
+
+# correlation coefficient of the paired data: same, use spearman's (e.g. transformed to rank) due to non-normality of data
+cor(calval_clean$flux_umol_m2_sec, calval_clean$CIRASFLX_L, method = "spearman")
+# -0.2875798
+```
+
+Alt correlation:
+```{r}
+# Goodman-Kruskal gamma correlation as these two datasets have long tails i.e. outliers; gamma correlation is not as affected by outliers. Gamma runs from -1 to 1 (with 0 = no correlation), like all other correlation statistics.
+# library(MESS) 
+# /^ includes below function; outx = TRUE to remove "tied" data with the same rank once transformed to rank
+# rcorr.cens(calval_clean$flux_umol_m2_sec, calval_clean$CIRASFLX_L, outx = TRUE)
+# gamma statistic: -0.17679406, weakly negative
+x = table(calval_clean$flux_umol_m2_sec, calval_clean$CIRASFLX_L)
+gkgamma(x, conf.level = 0.95)
+# Z = -3.2486, p-value = 0.00116, Goodman-Kruskal's gamma -0.1958196 (weak but statistically robust negative correlation)
+# 95 percent confidence interval: -0.31390618, -0.07773298
+
+## two-sided t-test:
+t.test(calval_clean$flux_umol_m2_sec, calval_clean$CIRASFLX_L)
+# p-value = 1.951e-06; the two are significantly different from each other
+```
+
+################
+April 20, 2023
+################
+
+suggestions from Reviewer 2:
+a) compare all CIRAS flux measurements for a given time against fluxbot measurements from the same time
+b) look at pattern/direction of CIRAS measurements all day and compare against those from fluxbots for those hours (harder to do given that we were limited in our ability to sample longer than 9am-5pm with the CIRAS)
+
+starting with b): looking at pattern/direction of CIRAS data
+```{r}
+# create df's of just the CIRAS data (all), and the final cleaned-up fluxbot data (including nighttime hours, etc.)
+df5 <- calval %>% 
+  select(timestamp_fluxbot, flux_umol_m2_sec, treatment, location, avg_temp_degC, BOTID, qaqc_flags) %>% 
+  rename(timestamp = timestamp_fluxbot, flux = flux_umol_m2_sec) %>% 
+  mutate(method = "fluxbot") %>% 
+  mutate(hour = format(as.POSIXct(timestamp), format = "%H"))
+
+df6 <- calval %>% 
+  select(timestamp_ciras, CIRASFLX_L, treatment, location, BOTID, avg_temp_degC, qaqc_flags) %>% 
+  rename(timestamp = timestamp_ciras, flux = CIRASFLX_L) %>% 
+  mutate(method = "CIRAS") %>% 
+  mutate(hour = format(as.POSIXct(timestamp), format = "%H"))
+
+# bind the two:
+df7 <- rbind(df5, df6)
+df7 <- df7 %>% 
+  filter(qaqc_flags <= 11) %>% 
+  filter(location != "Termite Soil")
+
+df7 %>% 
+  mutate(method = factor(method, levels = c("fluxbot", "CIRAS"))) %>% 
+  group_by(hour, method) %>%
+  summarise(mean_flux = mean(flux),
+            sd_flux = sd(flux)) %>% 
+  ggplot(aes(x=hour, y=mean_flux, color = method))+
+  geom_point(size = 4, position = position_dodge(width = 0.75))+
+  geom_errorbar(aes(ymin = mean_flux-sd_flux, ymax=mean_flux+sd_flux),
+                position = position_dodge(0.75))+
+  theme_classic()
+
+```
+then a): compare all CIRAS flux measurements for a given time against fluxbots' from the same time
+```{r}
+treatment.labs <- c("all herbivores", "total exclosure")
+names(treatment.labs) <- c("MWC", "O")
+
+df7 %>% 
+  mutate(method = factor(method, levels = c("fluxbot", "CIRAS"))) %>% 
+  filter(hour == "09"|hour =="10"|hour=="11"|hour=="12"|
+           hour=="13"|hour=="14"|hour=="15"|hour=="16") %>% 
+  # group_by(hour, method, location) %>%
+  group_by(hour, method, treatment) %>%
+  # group_by(hour, method) %>% 
+  summarise(mean_flux = mean(flux),
+            sd_flux = sd(flux)) %>%
+  ggplot(aes(x=hour, y=mean_flux, color = method))+
+  geom_point(size = 2, position = position_dodge(width = 0.5))+
+  geom_errorbar(aes(ymin = mean_flux-sd_flux, ymax=mean_flux+sd_flux),
+                position = position_dodge(0.5))+
+  # facet_wrap(~location)+
+  facet_wrap(~treatment,
+             labeller = labeller(treatment = treatment.labs))+
+  theme_classic()
+```
+
+Boxplot method (looking at medians):
+```{r}
+df7 %>% 
+  reorder_levels("method", order = c("fluxbot", "CIRAS")) %>% 
+  filter(hour == "09"|hour =="10"|hour=="11"|hour=="12"|
+           hour=="13"|hour=="14"|hour=="15"|hour=="16") %>% 
+  filter(location != "Termite Soil") %>% 
+  ggplot(aes(x=hour, y=flux, color = method))+
+  geom_boxplot()+
+  facet_wrap(~treatment+location)+
+  theme_classic()
+```
+just plot fluxes in time for CIRAS:
+```{r}
+
+df7 %>% 
+  # filter(method == "fluxbot") %>% 
+  filter(method == "CIRAS") %>% 
+  ggplot(aes(x=ymd_hms(timestamp), y=flux, color = BOTID))+
+  geom_point()+
+  geom_line(linetype="dotted")+
+  theme_classic()+
+  theme(axis.title = element_text(vjust = 0.25),
+        axis.text.x = element_text(vjust = 0.7, hjust = .8, angle = 25))+
+  labs(x=NULL,
+       y=expression(paste("flux, "~mu*"mol"~"/m"^2)*"/sec"))+
+  facet_wrap(~hour)
+    
+```
+AMBIENT T:
+```{r}
+df7 %>% 
+  mutate(method = factor(method, levels = c("fluxbot", "CIRAS"))) %>% 
+  group_by(hour, method) %>%
+  summarise(mnT = mean(avg_temp_degC),
+            sdT = sd(avg_temp_degC)) %>%
+  ggplot(aes(x=hour, y=mnT, color = method))+
+  geom_point(size = 2, position = position_dodge(width = 0.5))+
+  geom_errorbar(aes(ymin = mnT-sdT, ymax=mnT+sdT),
+                position = position_dodge(0.5))+
+  labs(y= "mean chamber temperature (C)", x="hour of day", title = "average chamber T by method")+
+  theme_classic()
+```
+AMBIENT T, fluxbots alone:
+```{r}
+fluxdat_final %>% 
+  # mutate(method = factor(method, levels = c("fluxbot", "CIRAS"))) %>% 
+  group_by(hour) %>%
+  summarise(mnT = mean(avg_temp_degC),
+            sdT = sd(avg_temp_degC)) %>%
+  ggplot(aes(x=hour, y=mnT))+
+  geom_point(size = 2)+
+  geom_errorbar(aes(ymin = mnT-sdT, ymax=mnT+sdT))+
+  labs(y= "mean chamber temperature (C)", x="hour of day", title = "average chamber T, fluxbot array")+
+  theme_classic()+
+  ylim(0,40)
+```

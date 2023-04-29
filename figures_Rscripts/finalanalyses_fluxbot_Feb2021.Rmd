@@ -9,6 +9,14 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r libraries}
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(DHARMa)
+```
+
+
 ## Analyses for fluxbot methods paper, using final dataset
 
 This document contains the analyses we'll use for our fluxbots methods paper. Using the fluxdat_final dataset constructed in "finaldataset_fluxbots_Feb2021" for all analyses.
@@ -18,17 +26,22 @@ This document contains the analyses we'll use for our fluxbots methods paper. Us
 mean(fluxdat_final$flux_umol_m2_sec)
 # [1] 3.971561
 ## updated 09/15/2022: 3.10518
+#### updated 04/18/2023: 4.050193
+median(fluxdat_final$flux_umol_m2_sec)
+# 3.144
 
 min(fluxdat_final$flux_umol_m2_sec)
 # -3.893
 ## updated 09/15/2022: -2.655
+#### updated 04/18/2023:-3.695
 
 max(fluxdat_final$flux_umol_m2_sec)
 # 43.313
 ## updated 09/15/2022: 38.51
+#### updated 04/18/2023: 46.395
 
-sum(fluxdat_final$flux_umol_m2_sec < 0) # only 445 of dataset's final 'negative' fluxes are less than zero
-sum(fluxdat_final$flux_umol_m2_sec < -1) # only 36 of dataset's final 'negative' fluxes are less than negative one
+sum(fluxdat_final$flux_umol_m2_sec < 0) # only 334 of dataset's final fluxes are negative
+sum(fluxdat_final$flux_umol_m2_sec < -1) # only 42 of dataset's final 'negative' fluxes are less than -1
 
 ```
 
@@ -37,9 +50,6 @@ sum(fluxdat_final$flux_umol_m2_sec < -1) # only 36 of dataset's final 'negative'
 This chunk has some brief comparisons between data collected at night, and during the day, for both flux and ambient CO2 values.
 ```{r ttests}
 # View(fluxdat_final)
-# library(tidyverse)
-# library(ggpubr)
-# library(rstatix)
 
 # want to first compare all midnight data to all high noon data. In all cases, I want to be able to put down bot location as a random effect; so this is going to be more of linear mixed effects model than a straight t-test.
 # run a paired (e.g. not independent) two-sample t-test on these data:
@@ -48,25 +58,18 @@ noon <- subset(fluxdat_final, hour == 12) # subset noon data
 
 t1 <- t.test(midnight$flux_umol_m2_sec, noon$flux_umol_m2_sec, paired = FALSE) # false bc the df's aren't equal length
 t1
-# t = 2.0804, df = 874.21, p-value = 0.03778
+# 	Welch Two Sample t-test
+# 
+# data:  midnight$flux_umol_m2_sec and noon$flux_umol_m2_sec
+# t = 2.5999, df = 877.99, p-value = 0.009482
+# alternative hypothesis: true difference in means is not equal to 0
 # 95 percent confidence interval:
-#  0.0295203 1.0139279
-# mean of midnight: 
-#  4.319149  
-# mean of noon: 
-# 3.797425 
-
-###### updated 09/15/2022:
-# t = 4.5927, df = 875.66, p-value = 5.015e-06; larger t-statistic and smaller p-value, smaller bounds
-# 95 percent confidence interval:
-#  0.533827 1.330559
+#  0.1637867 1.1727094
 # sample estimates:
-# mean of midnight:
-#  3.556217  
-# mean of noon:
-# 2.624024 
+# mean of x mean of y 
+#  4.455344  3.787096 
 
-# the two groups are statistically different from each other, ~425-450 observations each for midnight and noon; midnight significantly higher than noon, on average.  Not bad! also no random effect tho, need to keep that in mind; might be a good idea to separate by bot with a random effect.
+# the two groups are statistically different from each other, ~425-460 observations each for midnight and noon; midnight significantly higher than noon, on average.  Not bad! also no random effect tho, need to keep that in mind; might be a good idea to separate by bot with a random effect.
 
 # then, I want to compare all daytime data (8am-4pm = day, 8pm-4am = night).
 day <- subset(fluxdat_final, hour==8|hour==9|hour==10|hour==11|hour==12|hour==13|hour==14|hour==15|hour==16) #3954 entries
@@ -77,23 +80,17 @@ night <- subset(fluxdat_final, hour==20|hour==21|hour==22|hour==23|hour==0|hour=
 night$day_night <- "night"
 t2 <- t.test(night$flux_umol_m2_sec, day$flux_umol_m2_sec, paired = FALSE)
 t2
-# t = 6.46, df = 7701.4, p-value = 1.111e-10
+# t = 7.5646, df = 7692.4, p-value = 4.341e-14
+# alternative hypothesis: true difference in means is not equal to 0
 # 95 percent confidence interval:
-#  0.3900214 0.7298435
-# mean of night:
-# 4.277726  
-# mean of day:
-# 3.717793 
-
-###### updated 09/15/2022:
-# t = 11.354, df = 7607.7, p-value < 2.2e-16; again, difference is more pronounced, smaller bounds
-# 95 percent confidence interval:
-#  0.6679237 0.9466761
+#  0.4994595 0.8488599
 # sample estimates:
-# mean of x mean of y 
-#  3.507798  2.700498 
+#  mean of night  mean of day
+#  4.409714       3.735554 
 
+# night is also significantly higher flux than daytime hours
 ```
+
 ```{r mixedmodel}
 # I also want to compare night/day and midnight/noon using a generalized linear mixed effects model that allows for the use of random effects (botid):
 # is it temporally correlated?  is it repeated measures?  homogenous/constant variance, normality?
@@ -103,7 +100,7 @@ fluxdat_final %>%
   ggplot(aes(x=as.factor(hour), y=flux_umol_m2_sec, fill=as.factor(hour)))+
   geom_violin()+
   geom_jitter(color="black", size=0.5, alpha=0.25)+
-  theme_classic()+
+  theme_classic()+theme(legend.position = "none")+
   ggtitle("difference in soil flux between midnight (0) and noon (12)")
 
 # okay now for day/night:
@@ -112,7 +109,7 @@ fluxdat_daynight %>%
   ggplot(aes(x= day_night, y=flux_umol_m2_sec, fill=day_night))+
   geom_boxplot()+
   geom_jitter(color="black", size=0.5, alpha=0.25)+
-  theme_classic()+
+  theme_classic()+theme(legend.position = "none")+
   ggtitle("difference in soil flux between day and night")
 
 # definitely a visual difference in both cases. linear model of the day/night data 
@@ -135,6 +132,7 @@ bxp <- ggboxplot(
 bxp
 
 ```
+
 ```{r repeatedmeasuresanova}
 # I can also try two-way repeated measures anova, with an error term of BOTID.
 
@@ -151,9 +149,8 @@ colnames(daynight_mean) <- c("day_night", "BOTID", "treatment", "mean_flux") #la
 
 flux.aov <- with(daynight_mean,
                  aov(mean_flux ~ day_night + Error(BOTID/day_night)))
-# flux.aov <- with(daynight_mean,
-#                  aov(mean_flux ~ day_night*treatment + Error(BOTID/day_night*treatment))) 
 #model comparing flux by time of day, including an error term of BOTID for each condition (time of day) to look at how flux changes as a function of time of day, accounting for variation between individual BOTIDs. I tried this ANOVA with an interaction between day and night and treatment; that interaction was not significant so below summary is of JUST the mean_flux ~ day_night and an error term for BOTID
+
 summary(flux.aov)
 
 # Error: BOTID
@@ -172,7 +169,66 @@ bxp <- ggboxplot(
 bxp
 
 ```
+t-test of location:
+```{r}
+UT <- fluxdat_final %>% 
+  filter(location == "Under Tree")
+OS <- fluxdat_final %>% 
+  filter(location == "Open Soil")
 
+t3 <- t.test(UT$flux_umol_m2_sec, OS$flux_umol_m2_sec, paired = FALSE)
+t3
+# mean UT:  mean OS:
+# 3.686133  4.311908
+# p-value < 2.2e-16***
+
+UT %>% group_by(day_night_ID) %>% summarize(mean = mean(flux_umol_m2_sec))
+# day	  4.067619			
+# night	3.769976
+UT %>% t.test(flux_umol_m2_sec ~ day_night_ID, data = ., paired = FALSE)
+# day: 4.067619            
+# night: 3.769976 
+# p=0.266
+
+OS %>% group_by(day_night_ID) %>% summarize(mean = mean(flux_umol_m2_sec))
+# day	  3.913344			
+# night	4.946090	
+OS %>% t.test(flux_umol_m2_sec ~ day_night_ID, data = ., paired = FALSE)
+# day: 3.913344            
+# night: 4.946090 
+# p=0.004***
+
+```
+t-test of treatment:
+```{r}
+mwc <- fluxdat_final %>% 
+  filter(treatment == "MWC")
+o <- fluxdat_final %>% 
+  filter(treatment == "O")
+
+t4 <- t.test(mwc$flux_umol_m2_sec, o$flux_umol_m2_sec, paired = FALSE)
+t4
+# mean MWC:  mean O:
+# 4.608967  3.401198 
+# p-value < 2.2e-16***
+
+mwc %>% group_by(day_night_ID) %>% summarize(mean = mean(flux_umol_m2_sec))
+# day	  4.653717			
+# night	4.959643
+mwc %>% t.test(flux_umol_m2_sec ~ day_night_ID, data = ., paired = FALSE)
+# day: 4.653717            
+# night: 4.959643 
+# p=0.408
+
+o %>% group_by(day_night_ID) %>% summarize(mean = mean(flux_umol_m2_sec))
+# day	  3.102450			
+# night	3.861013	
+o %>% t.test(flux_umol_m2_sec ~ day_night_ID, data = ., paired = FALSE)
+# day: 3.102450            
+# night: 3.861013 
+# p=0.001
+
+```
 
 # temperature vs. flux relationship, day and night
 This chunk explores (visually) the relationships between temp and flux for daytime and nighttime data
@@ -214,12 +270,12 @@ This chunk explores the beta values, generated by the linear and quadratic regre
 ```{r betas} 
 # distribution plots
 fluxdat_final %>% 
-  ggplot(aes(x=`1st_order_beta_0`, fill=treatment, alpha=0.25))+
+  ggplot(aes(x=`X1st_order_beta_0`, fill=treatment, alpha=0.25))+
   geom_density()+
   theme_classic()
 
 fluxdat_final %>% 
-  ggplot(aes(x=`2nd_order_beta_0`, fill=treatment, alpha=0.25))+
+  ggplot(aes(x=`X2nd_order_beta_0`, fill=treatment, alpha=0.25))+
   geom_density()+
   theme_classic()
 
@@ -229,13 +285,13 @@ fluxdat_final %>%
   theme_classic() # plot exploring the distribution of flux values according to whether it was calculated with a linear or quadratic regression
 
 fluxdat_final %>% 
-  ggplot(aes(x=`1st_order_beta_0`, fill=regr, alpha=0.25))+
+  ggplot(aes(x=`X1st_order_beta_0`, fill=regr, alpha=0.25))+
   geom_density()+
   theme_classic()+
   ylim(c(0, 600000000))
 
 fluxdat_final %>% 
-  ggplot(aes(x=`2nd_order_beta_0`, fill=regr, alpha=0.25))+
+  ggplot(aes(x=`X2nd_order_beta_0`, fill=regr, alpha=0.25))+
   geom_density()+
   theme_classic()+
   ylim(c(0, 600000000))
@@ -245,7 +301,8 @@ fluxdat_final %>%
 library(reshape2)
 fluxdat_beta_long <- melt(fluxdat_final,
                           id.vars = c("BOTID", "hour"),
-                          measure.vars = c("1st_order_beta_0", "2nd_order_beta_0"),
+                          measure.vars = c("X1st_order_beta_0",
+                                           "X2nd_order_beta_0"),
                           variable.name = "beta_type",
                           value.name = "beta_value")
 # plot:
@@ -257,7 +314,8 @@ ggplot(fluxdat_beta_long, aes(x=beta_value, group=beta_type, fill=beta_type))+
 # do the same with day/night data:
 fluxdat_beta_long_daynight <- melt(fluxdat_daynight,
                           id.vars = c("BOTID", "day_night"),
-                          measure.vars = c("1st_order_beta_0", "2nd_order_beta_0"),
+                          measure.vars = c("X1st_order_beta_0",
+                                           "X2nd_order_beta_0"),
                           variable.name = "beta_type",
                           value.name = "beta_value")
 # plot:
@@ -269,26 +327,35 @@ ggplot(fluxdat_beta_long_daynight, aes(x=beta_value, group=beta_type, fill=beta_
 ########
 # also plot r-squareds against betas:
 fluxdat_final %>% 
-  ggplot(aes(x=`1st_order_beta_0`, y=`1st_order_r_sq`))+
+  ggplot(aes(x=`X1st_order_beta_0`, y=`X1st_order_r_sq`))+
   geom_point(alpha=0.5)+
   geom_smooth(method = lm, fullrange=TRUE)+
   facet_wrap(~BOTID)+
   theme_classic()
 
 fluxdat_final %>% 
-  ggplot(aes(x=`2nd_order_beta_0`, y=`2nd_order_r_sq`))+
+  ggplot(aes(x=`X2nd_order_beta_0`, y=`X2nd_order_r_sq`))+
   geom_point(alpha=0.5)+
   geom_smooth(method = lm, fullrange=TRUE)+
   facet_wrap(~BOTID)+
   theme_classic()
 ```
+```{r}
+# count number of observations in cleaned dataset that are quadratic, and have a positive beta_2 (aka the slope increases over time):
+fluxdat_final %>% 
+  filter(regr == "Q") %>% 
+  summarise(count = sum(X2nd_order_beta_1 > 0))
+# 3 only three observations from the final dataset had a positive second beta (aka increasing slope over time)
+```
+
+
 # this chunk explores the R2s: distribution, which of the methods (Q vs. L) of calculating flux correspond to day vs. night the most often, what the R2s are for those curves, etc. etc. etc..
 ```{r R2sexploration}
 
 # what I want to do is plot just the R2s for each method of calculation (e.g. 1st order R2s for L, 2nd order R2s for Q) and see the distributions for each.
 fluxdat_final %>% 
   filter(regr == "Q") %>%  #filter operates on rows, select on cols
-  ggplot(aes(x=`2nd_order_r_sq`))+
+  ggplot(aes(x=`X2nd_order_r_sq`))+
   geom_density(alpha=0.25)+
   facet_wrap(~BOTID)+
   theme_classic()
@@ -296,25 +363,25 @@ fluxdat_final %>%
 # with day/night data:
 fluxdat_daynight %>% 
   filter(regr == "Q") %>%  #filter operates on rows, select on cols
-  ggplot(aes(x=`2nd_order_r_sq`))+
+  ggplot(aes(x=`X2nd_order_r_sq`))+
   geom_density(alpha=0.25)+
   facet_wrap(~day_night)+
   theme_classic()
 
 # basic exploration of R2s
-mean(fluxdat_final$R2) #0.6488088
+mean(fluxdat_final$R2) #0.6466187
 median(fluxdat_final$R2) #0.883
-min(fluxdat_final$R2) #-24.106
+min(fluxdat_final$R2) #-24.182
 max(fluxdat_final$R2) #0.999
 
 # some more advanced exploration:
-sum(fluxdat_final$R2 < 0) # 808 of dataset's final 'negative' R2's are less than zero
-sum(fluxdat_final$R2 < -1) # 292 are less than -1
+sum(fluxdat_final$R2 < 0) # 825 of dataset's final 'negative' R2's are less than zero
+sum(fluxdat_final$R2 < -1) # 291 are less than -1
 # percentage that are negative?
-((sum(fluxdat_final$R2 < 0))/(sum(fluxdat_final$R2)))*100 # 12.34% of the R2s are less than zero
-((sum(fluxdat_final$R2 > -0.25 & fluxdat_final$R2 < 0.25))/(sum(fluxdat_final$R2)))*100 # 9.6% of the R2s are sort of clustered around zero
-((sum(fluxdat_final$R2 > 0.90))/(sum(fluxdat_final$R2)))*100 # 71% of the R2s are greater than 0.9, Carbone et al. threshold
-cor(fluxdat_final$flux_umol_m2_sec, fluxdat_final$R2) # 23.7% correlation between R2 and flux estimate
+((sum(fluxdat_final$R2 < 0))/(sum(fluxdat_final$R2)))*100 # 12.62% of the R2s are negative
+((sum(fluxdat_final$R2 > -0.25 & fluxdat_final$R2 < 0.25))/(sum(fluxdat_final$R2)))*100 # 9.75% of the negative R2s are sort of clustered around zero (-0.25 to 0.25)
+((sum(fluxdat_final$R2 > 0.90))/(sum(fluxdat_final$R2)))*100 # 71.3% of the R2s are greater than 0.9, Carbone et al. threshold
+cor(fluxdat_final$flux_umol_m2_sec, fluxdat_final$R2) # 23.9% correlation between R2 and flux estimate
 
 
 ```
@@ -322,16 +389,14 @@ cor(fluxdat_final$flux_umol_m2_sec, fluxdat_final$R2) # 23.7% correlation betwee
 Baaaasic descriptive stats of fluxbot data:
 ```{r descriptive_stats}
 # mean of fluxbot data, all
-mean(fluxdat_final$flux_umol_m2_sec) #3.971561
-# update 09/15/2022: 3.10518
+mean(fluxdat_final$flux_umol_m2_sec) #4.050193
 
 # median:
-median(fluxdat_final$flux_umol_m2_sec) #3.101
-# update 09/15/2022: 2.36
+median(fluxdat_final$flux_umol_m2_sec) #3.144
 
 # how many clustered around zero?
-sum(fluxdat_final$flux_umol_m2_sec > -2 & fluxdat_final$flux_umol_m2_sec < 2) #3259; about 32%
-# update 09/15/2022: 4356, about 43%
+sum(fluxdat_final$flux_umol_m2_sec > -1 & fluxdat_final$flux_umol_m2_sec < 1)
+# 1510, about 15%
 ```
 
 Random plots for exploration:

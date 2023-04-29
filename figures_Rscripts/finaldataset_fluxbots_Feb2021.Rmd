@@ -13,19 +13,32 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This script will be to generate the final dataset for the fluxbot methods paper, including removing the August 'test' data and some values for bots that did not pass manual QAQC (e.g. demonstrated possible electrical issues that were cross-validated in field notes, etc.). This final dataset will be used to generate all figures for the paper and will be exported to the project Github page alongside the original raw data, and the original processed data.
 
+```{r libraries}
+library(tidyverse)
+library(here)
+library(lubridate)
+```
+
+
 ```{r importcsv}
 # this chunk imports the data from the folder in which this .Rproj lives (where it was copied from the desktop clone of the Github repo, on Elizabeth's computer).
 
 # read ALL of the 20-second smoothed data, including "bad" rows (with QAQC > 11), as a tibble: 
-library(tidyverse)
-library(here)
-fluxdata_20s <- read_csv(here("pressure_humiditycorrected/all_events_with_bad_20.csv"))
+# fluxdata_20s <- read_csv(here("data",
+#                               "processed flux data",
+#                               "all_events_with_bad_20.csv"))
+
+# or, if the data hasn't been concatenated yet, import all the individual fluxbots' csvs in a list:
+file_names <- dir("data/processed flux data", full.names = TRUE) #where you have your files
+df_flux <- do.call(rbind,lapply(file_names,read.csv))
+
 # 24561 rows
 ```
+
 This chunk removes all rows for which the QAQC value was >11 total, and for which the timestamp was incorrect.
 ```{r removeQAQC}
 # remove rows for which the timestamp was off, i.e. those with the year incorrect:
-fluxdata_20s_2019 <- subset(fluxdata_20s, year == 2019) # 23195 rows
+fluxdata_20s_2019 <- subset(df_flux, year == 2019) # 23195 rows; 1366 removed with wrong year
 
 # remove those rows for which the qaqc value is over 11 total:
 fluxdata_20s_2019_qaqc <- subset(fluxdata_20s_2019, qaqc_flags<=11) # 21729 rows
@@ -37,12 +50,14 @@ fluxdata_20s_2019_qaqc$BOTID <- paste(fluxdata_20s_2019_qaqc$treatment, " ",
 
 #### a quick look through the data:
 # the number of negative fluxes in the cleaned dataset vs. the original dataset:
-sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0, na.rm = TRUE) # 1009 below zero in 'clean'
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0, na.rm = TRUE) # 763 below zero in 'clean'
 sum(fluxdata_20s$flux_umol_m2_sec < 0, na.rm = TRUE) # 1985 below zero in 'full'
 
 # how negative are the negative fluxes?
-sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -3) # none
-sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -1) # only 104; so 905 are between 0 and -1
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -3) # 2
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -1) # only 112
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec > -1 &
+      fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0) # 651; the vast majority of our negative fluxes are quite small (between 0 and -1)
 
 #### rename the df something more convenient that we can manipulate:
 fluxdat_final <- fluxdata_20s_2019_qaqc
@@ -58,7 +73,6 @@ fluxdat_final <- fluxdat_final %>%
   
 # remove the values that were before August 23rd, for the bots that were recalibrated or for which the hardware was replaced on the 21st or 22nd:
 # first convert timestamp from factor to posixct; there's weird characters in it so it'll take a workaround sadly:
-library(lubridate)
 fluxdat_final$timestamp.b <-  with(fluxdat_final, ymd_h(paste(year, month, day, hour, sep= ' ')))
 # filter out values before Aug. 23rd:
 fluxdat_final <- fluxdat_final %>% 
@@ -86,17 +100,24 @@ In this chunk, we are adding to the final dataset any additional columns we may 
 ```{r add_addditional_cols}
 # use mutate to add column with L or Q depending on whether the first beta is larger than the second beta; this designation indicates whether the flux was calculated with the slope from the linear (L) regression, or the quadratic (Q). The terms: the logical statement, what to label if the logical statement is true, and what to label if the logical statement is false.
 fluxdat_final <- fluxdat_final %>% 
-  mutate(regr = if_else(`1st_order_beta_0` > `2nd_order_beta_0`, "L", "Q"))
+  mutate(regr = if_else(`X1st_order_beta_0` > `X2nd_order_beta_0`, "L", "Q"))
 
 # count how many were calculated with each method:
-sum(fluxdat_final$regr == "L") #3514 total
-sum(fluxdat_final$regr == "Q") #6593 total
+sum(fluxdat_final$regr == "L") #3327 total
+sum(fluxdat_final$regr == "Q") #6780 total
 
 # we also want to add a col to this dataframe that selects the CORRECT R2 value (e.g. the one that coordinates with the beta value that was ultimately selected; linear or quadratic)
 #if 'beta' col = "1st_order_beta_0", new col "R2" = "1st_order_r_sq"
 #if 'beta' col = "2nd_order_beta_0", new col "R2" = "2nd_order_r_sq"
-fluxdat_final$R2 <- ifelse(fluxdat_final$beta == fluxdat_final$`1st_order_beta_0`,
-                           fluxdat_final$`1st_order_r_sq`, 
-                           fluxdat_final$`2nd_order_r_sq`)
+fluxdat_final$R2 <- ifelse(fluxdat_final$beta == fluxdat_final$`X1st_order_beta_0`,
+                           fluxdat_final$`X1st_order_r_sq`, 
+                           fluxdat_final$`X2nd_order_r_sq`)
+```
+Write dataset to folder:
+```{r}
+# cleaned dataset:
+write.csv(fluxdat_final, "fluxdatfinal_cleaned.csv")
+# all the flux estimates:
+write.csv(fluxdata_20s_2019, "fluxes_allestimates_withbad.csv")
 ```
 
