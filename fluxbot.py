@@ -443,7 +443,7 @@ class Fluxbot():
         """
         e_s = T.apply(e_star, units='hPa')
         x_s = self._saturation_density(e_s, P)
-        x = x_s * relHum
+        x = x_s * relHum / 100 # Divide by 100 to convert to fraction
         return x
 
     def gas_ppm_to_conc(self, gas_ppm, P, T, RelHum, g_per_mol=44.009):
