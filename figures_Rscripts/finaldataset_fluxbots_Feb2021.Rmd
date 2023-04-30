@@ -29,19 +29,21 @@ library(lubridate)
 #                               "all_events_with_bad_20.csv"))
 
 # or, if the data hasn't been concatenated yet, import all the individual fluxbots' csvs in a list:
-file_names <- dir("data/processed flux data", full.names = TRUE) #where you have your files
+# file_names <- dir("fluxbots2019_archive/data/processed flux data", full.names = TRUE) #where you have your files
+file_names <- dir("../data/processed flux data", full.names = TRUE) #where you have your files
+
 df_flux <- do.call(rbind,lapply(file_names,read.csv))
 
-# 24561 rows
+# 16177 rows
 ```
 
 This chunk removes all rows for which the QAQC value was >11 total, and for which the timestamp was incorrect.
 ```{r removeQAQC}
 # remove rows for which the timestamp was off, i.e. those with the year incorrect:
-fluxdata_20s_2019 <- subset(df_flux, year == 2019) # 23195 rows; 1366 removed with wrong year
+fluxdata_20s_2019 <- subset(df_flux, year == 2019) # 14882 rows; 1295 removed with wrong year
 
 # remove those rows for which the qaqc value is over 11 total:
-fluxdata_20s_2019_qaqc <- subset(fluxdata_20s_2019, qaqc_flags<=11) # 21729 rows
+fluxdata_20s_2019_qaqc <- subset(fluxdata_20s_2019, qaqc_flags<=11) # 13804 rows
 
 # add BOTID column:
 fluxdata_20s_2019_qaqc$BOTID <- paste(fluxdata_20s_2019_qaqc$treatment, " ", 
@@ -50,27 +52,22 @@ fluxdata_20s_2019_qaqc$BOTID <- paste(fluxdata_20s_2019_qaqc$treatment, " ",
 
 #### a quick look through the data:
 # the number of negative fluxes in the cleaned dataset vs. the original dataset:
-sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0, na.rm = TRUE) # 763 below zero in 'clean'
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0, na.rm = TRUE) # 493 below zero in 'clean'
 sum(fluxdata_20s$flux_umol_m2_sec < 0, na.rm = TRUE) # 1985 below zero in 'full'
 
 # how negative are the negative fluxes?
 sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -3) # 2
-sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -1) # only 112
+sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec < -1) # only 60
 sum(fluxdata_20s_2019_qaqc$flux_umol_m2_sec > -1 &
-      fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0) # 651; the vast majority of our negative fluxes are quite small (between 0 and -1)
+      fluxdata_20s_2019_qaqc$flux_umol_m2_sec < 0) # 433; the vast majority of our negative fluxes are quite small (between 0 and -1)
 
 #### rename the df something more convenient that we can manipulate:
 fluxdat_final <- fluxdata_20s_2019_qaqc
 ```
 
-This chunk removes all rows for which the data was collected prior to Aug. 22nd, 2019, because the weeks in August were test deployment periods during which bots were occasionally removed for repair, we troubleshot the rainfall events with nighttime roof covers and clear nail polish on the electronics, etc. We are also removing the "termite soil" data from the dataset, as those sites are likely to be more spatially variable than sites under trees or on open soil patches (so those data, UT and OS, are more likely to be a robust assessment of the fluxbots' performance and representative of their operation).
-```{r remove_termitedata_Augtestdata}
+This chunk removes all rows for which the data was collected prior to Aug. 22nd, 2019, because the weeks in August were test deployment periods during which bots were occasionally removed for repair, we troubleshot the rainfall events with nighttime roof covers and clear nail polish on the electronics, etc. 
+```{r remove_Augtestdata}
 
-# remove the "termite soil" data by filtering for "open soil" OR "under tree":
-fluxdat_final <- fluxdat_final %>% 
-  filter(location == "Open Soil" | location == "Under Tree") # this col OR that col
-# 13804 rows
-  
 # remove the values that were before August 23rd, for the bots that were recalibrated or for which the hardware was replaced on the 21st or 22nd:
 # first convert timestamp from factor to posixct; there's weird characters in it so it'll take a workaround sadly:
 fluxdat_final$timestamp.b <-  with(fluxdat_final, ymd_h(paste(year, month, day, hour, sep= ' ')))
@@ -113,6 +110,7 @@ fluxdat_final$R2 <- ifelse(fluxdat_final$beta == fluxdat_final$`X1st_order_beta_
                            fluxdat_final$`X1st_order_r_sq`, 
                            fluxdat_final$`X2nd_order_r_sq`)
 ```
+
 Write dataset to folder:
 ```{r}
 # cleaned dataset:
